@@ -33,4 +33,6 @@ public class User {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
+    @Column(nullable = false)
+    private String role;
 }
