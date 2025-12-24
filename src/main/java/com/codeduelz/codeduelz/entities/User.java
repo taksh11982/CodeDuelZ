@@ -7,6 +7,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
+
 @Getter
 @Setter
 @Entity
@@ -15,24 +16,21 @@ public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "user_id")
-    private int userId;
-
+    private Long userId;
     @Column(nullable = false, unique = true)
     private String userName;
-
     @Column(nullable = false, unique = true)
     private String email;
-
     @Column(nullable = false)
     private String password;
-
-    @Column(nullable = false)
     private int rating = 0;
-
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Role role;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AuthProvider provider;
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
-    @Column(nullable = false)
-    private String role;
 }
