@@ -16,8 +16,15 @@ import lombok.Setter;
 public class ProfileDto {
     private Long profileId;
     private User user;
+    private String userName;
+    private String email;
+    private Integer rating=1000;
+    private Integer losses=0;
     private Integer totalMatches=0;
     private Integer wins=0;
     private String bio;
     private String avatar;
+    private String leetcodeUsername;
+    private String codechefUsername;
+    private String codeforcesHandle;
 }

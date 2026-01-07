@@ -20,7 +20,14 @@ public class Profile {
     private Integer totalMatches=0;
     @Column(nullable = false)
     private Integer wins=0;
+    @Column(nullable = false)
+    private Integer losses=0;
+    @Column(nullable = false)
+    private Integer rating=1000;
     @Column(length = 500)
     private String bio;
     private String avatar;
+    private String leetcodeUsername;
+    private String codechefUsername;
+    private String codeforcesHandle;
 }

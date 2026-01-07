@@ -24,5 +24,5 @@ public class Friend {
     @JoinColumn(name = "friend_user_id",nullable = false)
     private User friendUser;
     @Column(nullable = false)
-    private String Status;
+    private String status;
 }

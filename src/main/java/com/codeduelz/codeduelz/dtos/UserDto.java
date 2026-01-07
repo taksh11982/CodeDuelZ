@@ -17,7 +17,6 @@ public class UserDto {
     private String userName;
     private String email;
     private String password;
-    private int rating = 0;
     private Role role;
     private AuthProvider provider;
     private LocalDateTime createdAt;
