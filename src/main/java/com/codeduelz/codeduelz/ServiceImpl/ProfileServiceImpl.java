@@ -9,7 +9,6 @@ import com.codeduelz.codeduelz.repo.UserRepo;
 import com.codeduelz.codeduelz.services.ProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
 import java.util.Optional;
 
 @Service
@@ -30,11 +29,8 @@ public class ProfileServiceImpl implements ProfileService {
 
     @Override
     public ProfileDto getProfile(User user) {
-        Optional<Profile> profileOpt = profileRepo.findByUser(user);
-        if (profileOpt.isEmpty()) {
-            return null;
-        }
-        Profile profile = profileOpt.get();
+        Profile profile = profileRepo.findByUser(user)
+                .orElseGet(() -> createProfile(user));
 
         ProfileDto dto = new ProfileDto();
         dto.setUserName(user.getEmail());
@@ -68,7 +64,7 @@ public class ProfileServiceImpl implements ProfileService {
         if (dto.getCodeforcesHandle() != null) {
             profile.setCodeforcesHandle(dto.getCodeforcesHandle());
         }
-
+        profileRepo.save(profile);
         return getProfile(user);
     }
 
