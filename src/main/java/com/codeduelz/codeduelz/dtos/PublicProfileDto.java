@@ -1,6 +1,5 @@
 package com.codeduelz.codeduelz.dtos;
 
-import com.codeduelz.codeduelz.entities.User;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -10,10 +9,16 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class LeaderboardDto {
+public class PublicProfileDto {
     private Long userId;
     private String userName;
     private Integer rating;
-    private Integer rank;
+    private Integer wins;
+    private Integer losses;
+    private String bio;
     private String avatar;
+    private String leetcodeUsername;
+    private String codechefUsername;
+    private String codeforcesHandle;
 }
+

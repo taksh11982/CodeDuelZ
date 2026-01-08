@@ -27,5 +27,6 @@ public class Match {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     @Column(nullable = false)
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private MatchStatus status;
 }

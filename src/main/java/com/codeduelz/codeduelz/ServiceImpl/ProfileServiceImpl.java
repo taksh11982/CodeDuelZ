@@ -1,6 +1,8 @@
 package com.codeduelz.codeduelz.ServiceImpl;
 
+import com.codeduelz.codeduelz.dtos.LeaderboardDto;
 import com.codeduelz.codeduelz.dtos.ProfileDto;
+import com.codeduelz.codeduelz.dtos.PublicProfileDto;
 import com.codeduelz.codeduelz.dtos.UpdateProfileDto;
 import com.codeduelz.codeduelz.entities.Profile;
 import com.codeduelz.codeduelz.entities.User;
@@ -9,6 +11,9 @@ import com.codeduelz.codeduelz.repo.UserRepo;
 import com.codeduelz.codeduelz.services.ProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -33,7 +38,7 @@ public class ProfileServiceImpl implements ProfileService {
                 .orElseGet(() -> createProfile(user));
 
         ProfileDto dto = new ProfileDto();
-        dto.setUserName(user.getEmail());
+        dto.setUserName(user.getUsername());
         dto.setEmail(user.getEmail());
         dto.setRating(profile.getRating());
         dto.setTotalMatches(profile.getTotalMatches());
@@ -50,6 +55,9 @@ public class ProfileServiceImpl implements ProfileService {
                 .orElseGet(() -> createProfile(user));
 
         if (dto.getBio() != null) {
+            if (dto.getBio().length() > 500) {
+                throw new IllegalArgumentException("Bio too long");
+            }
             profile.setBio(dto.getBio());
         }
         if (dto.getAvatar() != null) {
@@ -66,6 +74,48 @@ public class ProfileServiceImpl implements ProfileService {
         }
         profileRepo.save(profile);
         return getProfile(user);
+    }
+
+    @Override
+    public PublicProfileDto getPublicProfile(Long userId) {
+
+        Profile profile = profileRepo.findByUser_UserId(userId)
+                .orElseThrow(() -> new RuntimeException("Profile not found"));
+
+        User user = profile.getUser();
+
+        PublicProfileDto dto = new PublicProfileDto();
+        dto.setUserId(user.getUserId());
+        dto.setUserName(user.getUsername());
+        dto.setRating(profile.getRating());
+        dto.setWins(profile.getWins());
+        dto.setLosses(profile.getLosses());
+        dto.setBio(profile.getBio());
+        dto.setAvatar(profile.getAvatar());
+        dto.setLeetcodeUsername(profile.getLeetcodeUsername());
+        dto.setCodechefUsername(profile.getCodechefUsername());
+        dto.setCodeforcesHandle(profile.getCodeforcesHandle());
+
+        return dto;
+    }
+
+    @Override
+    public List<LeaderboardDto> getLeaderboard() {
+        List<Profile> profiles = profileRepo.findTop10ByOrderByRatingDesc();
+        List<LeaderboardDto> leaderboard = new ArrayList<>();
+        int rank=1;
+        for (Profile profile : profiles) {
+            User user = profile.getUser();
+            LeaderboardDto dto = new LeaderboardDto();
+            dto.setUserId(user.getUserId());
+            dto.setUserName(user.getUsername());
+            dto.setRating(profile.getRating());
+            dto.setAvatar(profile.getAvatar());
+            dto.setRank(rank++);
+
+            leaderboard.add(dto);
+        }
+        return leaderboard;
     }
 
 

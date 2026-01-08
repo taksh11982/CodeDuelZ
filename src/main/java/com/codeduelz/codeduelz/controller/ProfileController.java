@@ -1,6 +1,7 @@
 package com.codeduelz.codeduelz.controller;
 
 import com.codeduelz.codeduelz.dtos.ProfileDto;
+import com.codeduelz.codeduelz.dtos.PublicProfileDto;
 import com.codeduelz.codeduelz.dtos.UpdateProfileDto;
 import com.codeduelz.codeduelz.entities.User;
 import com.codeduelz.codeduelz.services.ProfileService;
@@ -20,5 +21,9 @@ public class ProfileController {
     @PutMapping
     public ProfileDto updateProfile(@AuthenticationPrincipal User user,@RequestBody UpdateProfileDto dto){
         return profileService.updateProfile(user,dto);
+    }
+    @GetMapping("/{userId}")
+    public PublicProfileDto  getPublicProfile(@PathVariable Long userId){
+        return  profileService.getPublicProfile(userId);
     }
 }
