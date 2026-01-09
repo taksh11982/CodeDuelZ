@@ -9,4 +9,5 @@ import java.util.List;
 public interface MatchRepo extends JpaRepository<Match,Long> {
     List<Match> findByStatus(String status);
     List<Match> findByPlayer1OrPlayer2(User player1, User player2);
+
 }

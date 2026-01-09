@@ -18,9 +18,12 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class MatchDto {
     private Long matchId;
-    private User player1;
-    private User player2;
-    private Problem problem;
+    private Long player1Id;
+    private String player1Name;
+    private Long player2Id;
+    private String player2Name;
+    private Long problemId;
+    private String problemTitle;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private String status;
