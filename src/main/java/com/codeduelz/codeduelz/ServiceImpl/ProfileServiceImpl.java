@@ -43,8 +43,12 @@ public class ProfileServiceImpl implements ProfileService {
         dto.setRating(profile.getRating());
         dto.setTotalMatches(profile.getTotalMatches());
         dto.setWins(profile.getWins());
+        dto.setLosses(profile.getLosses());
         dto.setBio(profile.getBio());
         dto.setAvatar(profile.getAvatar());
+        dto.setLeetcodeUsername(profile.getLeetcodeUsername());
+        dto.setCodechefUsername(profile.getCodechefUsername());
+        dto.setCodeforcesHandle(profile.getCodeforcesHandle());
 
         return dto;
     }
