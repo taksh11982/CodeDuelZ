@@ -26,6 +26,7 @@ public class Profile {
     private Integer rating=1000;
     @Column(length = 500)
     private String bio;
+    @Column(columnDefinition = "TEXT")
     private String avatar;
     private String leetcodeUsername;
     private String codechefUsername;

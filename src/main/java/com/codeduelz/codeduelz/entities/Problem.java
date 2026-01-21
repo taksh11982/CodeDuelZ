@@ -17,5 +17,6 @@ public class Problem {
     @Column(nullable = false,length = 2000)
     private String description;
     @Column(nullable = false)
-    private String difficulty;
+    @Enumerated(EnumType.STRING)
+    private Difficulty difficulty;
 }

@@ -1,9 +1,6 @@
 package com.codeduelz.codeduelz.controller;
 
-import com.codeduelz.codeduelz.dtos.CreateMatchDto;
-import com.codeduelz.codeduelz.dtos.MatchDto;
-import com.codeduelz.codeduelz.dtos.MatchHistoryDto;
-import com.codeduelz.codeduelz.dtos.MatchResultDto;
+import com.codeduelz.codeduelz.dtos.*;
 import com.codeduelz.codeduelz.entities.User;
 import com.codeduelz.codeduelz.services.MatchService;
 import lombok.AllArgsConstructor;
@@ -28,6 +25,10 @@ public class MatchController {
     @GetMapping("/history")
     public List<MatchHistoryDto> getMatchHistory(@AuthenticationPrincipal User user){
         return matchService.getMatchHistory(user);
+    }
+    @GetMapping("/{matchId}/problem")
+    public MatchProblemDto getMatchProblem(@PathVariable Long matchId) {
+        return matchService.getMatchProblem(matchId);
     }
 
 }

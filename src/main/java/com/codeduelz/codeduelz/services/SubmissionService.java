@@ -1,8 +1,9 @@
 package com.codeduelz.codeduelz.services;
 
+import com.codeduelz.codeduelz.dtos.SubmitCodeDto;
 import com.codeduelz.codeduelz.entities.Submission;
+import com.codeduelz.codeduelz.entities.User;
 
 public interface SubmissionService {
-    public Submission submit(Submission submission);
-    public void updateStatus(Submission submission, String status);
+    public void submitCode(User user, SubmitCodeDto dto);
 }

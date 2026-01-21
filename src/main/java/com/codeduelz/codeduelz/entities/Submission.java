@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 @Setter
 @Entity
 @Table(name = "submissions")
-public class Submission {
+public class    Submission {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long submissionId;
@@ -27,7 +27,8 @@ public class Submission {
     @Column(nullable = false)
     private String language;
     @Column(nullable = false)
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private SubmissionStatus status;
     @Column(nullable = false)
     private LocalDateTime submittedAt;
 }

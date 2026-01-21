@@ -9,5 +9,5 @@ public interface MatchService {
     MatchDto createMatch(User user, CreateMatchDto dto);
     void completeMatch(Long matchId, MatchResultDto dto);
     List<MatchHistoryDto> getMatchHistory(User user);
-
+    MatchProblemDto getMatchProblem(Long matchId);
 }
