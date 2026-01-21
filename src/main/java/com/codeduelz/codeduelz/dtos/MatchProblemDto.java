@@ -1,14 +1,14 @@
 package com.codeduelz.codeduelz.dtos;
 
 import com.codeduelz.codeduelz.entities.Difficulty;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
-public class CreateMatchDto {
-    private Long opponentUserId;
+public class MatchProblemDto {
+    private Long problemId;
+    private String title;
+    private String description;
     private Difficulty difficulty;
 }

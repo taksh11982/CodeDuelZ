@@ -10,6 +10,7 @@ import com.codeduelz.codeduelz.repo.ProblemRepo;
 import com.codeduelz.codeduelz.repo.ProfileRepo;
 import com.codeduelz.codeduelz.repo.UserRepo;
 import com.codeduelz.codeduelz.services.MatchService;
+import com.codeduelz.codeduelz.services.ProblemService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -26,25 +27,23 @@ public class MatchServiceImpl implements MatchService {
     private ProblemRepo problemRepo;
     @Autowired
     private ProfileRepo profileRepo;
-
+    @Autowired
+    private ProblemService problemService;
     @Override
     public MatchDto createMatch(User user, CreateMatchDto dto) {
-        User player1 = userRepo.findById(user.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
         User opponent = userRepo.findById(dto.getOpponentUserId())
                 .orElseThrow(() -> new RuntimeException("Opponent not found"));
 
-        Problem problem = problemRepo.findById(dto.getProblemId())
-                .orElseThrow(() -> new RuntimeException("Problem not found"));
+        Problem problem = problemService.getRandomProblem(dto.getDifficulty());
+
         Match match = new Match();
-        match.setPlayer1(player1);
+        match.setPlayer1(user);
         match.setPlayer2(opponent);
         match.setProblem(problem);
+        match.setStatus(MatchStatus.CREATED);
         match.setStartTime(LocalDateTime.now());
-        match.setStatus(MatchStatus.ONGOING);
-        match = matchRepo.save(match);
-        return mapToMatchDto(match);
+        Match save = matchRepo.save(match);
+        return mapToMatchDto(save);
     }
 
     @Override
@@ -92,6 +91,22 @@ public class MatchServiceImpl implements MatchService {
             dto.setEndTime(match.getEndTime());
             return dto;
         }).toList();
+    }
+
+    @Override
+    public MatchProblemDto getMatchProblem(Long matchId) {
+        Match match = matchRepo.findById(matchId)
+                .orElseThrow(() -> new RuntimeException("Match not found"));
+
+        Problem problem = match.getProblem();
+
+        MatchProblemDto dto = new MatchProblemDto();
+        dto.setProblemId(problem.getProblemId());
+        dto.setTitle(problem.getTitle());
+        dto.setDescription(problem.getDescription());
+        dto.setDifficulty(problem.getDifficulty());
+
+        return dto;
     }
 
     private void updateProfileStats(User player, User winner) {
