@@ -21,7 +21,7 @@ public class Match {
     @ManyToOne
     @JoinColumn(name = "player2_id",nullable = false)
     private User player2;
-    @OneToOne
+    @ManyToOne
     @JoinColumn(name = "problem_id",nullable = false)
     private Problem problem;
     private LocalDateTime startTime;
@@ -29,4 +29,8 @@ public class Match {
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private MatchStatus status;
+    private Long winnerId;
+    private Integer player1RatingChange;
+    private Integer player2RatingChange;
+    private Integer timeLimitSeconds;
 }

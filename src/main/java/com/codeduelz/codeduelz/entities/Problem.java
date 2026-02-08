@@ -14,9 +14,14 @@ public class Problem {
     private Long problemId;
     @Column(nullable = false)
     private String title;
-    @Column(nullable = false,length = 2000)
+    @Column(columnDefinition = "TEXT")
     private String description;
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private Difficulty difficulty;
+
+    // Codeforces specific fields
+    private Integer contestId;
+    private String problemIndex;
+    private String source; // "LOCAL" or "CODEFORCES"
 }

@@ -1,7 +1,8 @@
 package com.codeduelz.codeduelz.entities;
 
 public enum MatchStatus {
+    WAITING,
     CREATED,
-    COMPLETED,
-    ONGOING
+    ONGOING,
+    COMPLETED
 }

@@ -8,4 +8,5 @@ import java.util.List;
 
 public interface ProblemRepo extends JpaRepository<Problem,Long> {
     List<Problem> findByDifficulty(Difficulty difficulty);
+    java.util.Optional<Problem> findByContestIdAndProblemIndex(Integer contestId, String problemIndex);
 }

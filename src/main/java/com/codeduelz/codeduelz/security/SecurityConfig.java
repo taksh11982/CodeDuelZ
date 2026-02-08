@@ -42,6 +42,7 @@ public class SecurityConfig {
                         .requestMatchers("/public/**").permitAll()
                         .requestMatchers("/leaderboard").permitAll()
                         .requestMatchers("/profile/*").permitAll()
+                        .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/external-stats").authenticated()
                         .anyRequest().authenticated()
                 )
