@@ -25,7 +25,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "https://codeduelz-kscu.onrender.com",
-                "https://code-duel-z.vercel.app"
+                "https://codeduelz.vercel.app"
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
@@ -44,6 +44,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/").permitAll()
+                        .requestMatchers("/health").permitAll()
                         .requestMatchers("/public/**").permitAll()
                         .requestMatchers("/leaderboard").permitAll()
                         .requestMatchers("/profile/*").permitAll()
