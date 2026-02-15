@@ -1,7 +1,9 @@
 package com.codeduelz.codeduelz.services;
 
+import com.codeduelz.codeduelz.dtos.CodeExecutionResultDto;
 import com.codeduelz.codeduelz.entities.*;
 import com.codeduelz.codeduelz.repo.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,10 @@ public class MatchmakingService {
     private final MatchRepo matchRepo;
     private final LeetCodeProblemService leetCodeProblemService;
     private final ProfileRepo profileRepo;
+    private final CodeExecutionService codeExecutionService;
+    private final TestCaseRepo testCaseRepo;
+    private final SubmissionRepo submissionRepo;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Queue per difficulty: difficulty -> list of waiting usernames
     private final Map<String, ConcurrentLinkedQueue<String>> queues = new ConcurrentHashMap<>();
@@ -80,6 +86,17 @@ public class MatchmakingService {
         problemPayload.put("constraints", problemData.get("constraints"));
         problemPayload.put("codeSnippets", problemData.get("codeSnippets"));
 
+        // Include test cases in the match data for the Run button
+        List<TestCase> testCases = testCaseRepo.findByProblem(problem);
+        List<Map<String, String>> testCaseData = new ArrayList<>();
+        for (TestCase tc : testCases) {
+            Map<String, String> tcMap = new HashMap<>();
+            tcMap.put("input", tc.getInput());
+            tcMap.put("expectedOutput", tc.getExpectedOutput());
+            testCaseData.add(tcMap);
+        }
+        problemPayload.put("testCases", testCaseData);
+
         Map<String, Object> matchData = new HashMap<>();
         matchData.put("matchId", saved.getMatchId());
         matchData.put("problem", problemPayload);
@@ -93,35 +110,140 @@ public class MatchmakingService {
         messaging.convertAndSend("/topic/user/" + username2, matchData);
     }
 
+    /**
+     * Run code against example test cases (for the "Run" button).
+     * Does NOT affect the match outcome. Just returns execution results.
+     */
+    public void runCode(String username, Long matchId, String code, String language) {
+        Match match = matchRepo.findById(matchId).orElse(null);
+        if (match == null) {
+            sendRunResult(username, errorResult("Match not found"));
+            return;
+        }
+
+        List<TestCase> testCases = testCaseRepo.findByProblem(match.getProblem());
+        if (testCases.isEmpty()) {
+            sendRunResult(username, errorResult("No test cases available for this problem"));
+            return;
+        }
+
+        // Run asynchronously so we don't block the WebSocket thread
+        CompletableFuture.runAsync(() -> {
+            CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases);
+            sendRunResult(username, result);
+        });
+    }
+
+    /**
+     * Submit code for judging (for the "Submit" button).
+     * Evaluates code against ALL test cases. If ALL pass, the user wins.
+     */
     public void submitCode(String username, Long matchId, String code, String language) {
         Match match = matchRepo.findById(matchId).orElse(null);
-        if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
+        if (match == null || match.getStatus() == MatchStatus.COMPLETED) {
+            sendSubmitResult(username, errorResult("Match not found or already completed"));
+            return;
+        }
 
         User user = userRepo.findByUserName(username).orElse(null);
         if (user == null) return;
 
-        // First to submit wins (mock judge)
-        match.setWinnerId(user.getUserId());
+        List<TestCase> testCases = testCaseRepo.findByProblem(match.getProblem());
+
+        // Save the submission
+        Submission submission = new Submission();
+        submission.setUser(user);
+        submission.setMatch(match);
+        submission.setProblem(match.getProblem());
+        submission.setCode(code);
+        submission.setLanguage(language);
+        submission.setStatus(SubmissionStatus.PENDING);
+        submission.setSubmittedAt(LocalDateTime.now());
+        submissionRepo.save(submission);
+
+        if (testCases.isEmpty()) {
+            // Fallback: no test cases → first-to-submit wins (legacy behavior)
+            submission.setStatus(SubmissionStatus.ACCEPTED);
+            submission.setTestCasesPassed(0);
+            submission.setTestCasesTotal(0);
+            submissionRepo.save(submission);
+            declareWinner(match, user, username);
+            sendSubmitResult(username, new CodeExecutionResultDto(
+                "ACCEPTED", List.of(), null, 0, 0
+            ));
+            return;
+        }
+
+        // Run code against test cases asynchronously
+        CompletableFuture.runAsync(() -> {
+            CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases);
+
+            // Update submission with results
+            submission.setTestCasesPassed(result.getTotalPassed());
+            submission.setTestCasesTotal(result.getTotalTests());
+            try {
+                submission.setExecutionOutput(objectMapper.writeValueAsString(result));
+            } catch (Exception ignored) {}
+
+            if ("ACCEPTED".equals(result.getStatus())) {
+                submission.setStatus(SubmissionStatus.ACCEPTED);
+                submissionRepo.save(submission);
+
+                // Re-check match is still ongoing (another player might have won while we were executing)
+                Match freshMatch = matchRepo.findById(matchId).orElse(null);
+                if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
+                    declareWinner(freshMatch, user, username);
+                }
+            } else {
+                // Map result status to SubmissionStatus
+                switch (result.getStatus()) {
+                    case "COMPILATION_ERROR" -> submission.setStatus(SubmissionStatus.COMPILATION_ERROR);
+                    case "RUNTIME_ERROR" -> submission.setStatus(SubmissionStatus.RUNTIME_ERROR);
+                    case "TIME_LIMIT_EXCEEDED" -> submission.setStatus(SubmissionStatus.TIME_LIMIT_EXCEEDED);
+                    default -> submission.setStatus(SubmissionStatus.WRONG);
+                }
+                submissionRepo.save(submission);
+            }
+
+            // Send results back to the submitter
+            sendSubmitResult(username, result);
+        });
+    }
+
+    private void declareWinner(Match match, User winner, String winnerName) {
+        match.setWinnerId(winner.getUserId());
         match.setStatus(MatchStatus.COMPLETED);
         match.setEndTime(LocalDateTime.now());
-        
-        boolean isPlayer1 = match.getPlayer1().getUserId().equals(user.getUserId());
+
+        boolean isPlayer1 = match.getPlayer1().getUserId().equals(winner.getUserId());
         match.setPlayer1RatingChange(isPlayer1 ? 25 : -15);
         match.setPlayer2RatingChange(isPlayer1 ? -15 : 25);
         matchRepo.save(match);
 
         updateRatings(match);
 
-        // Notify both players of result
+        // Notify both players of the match result
         Map<String, Object> result = Map.of(
-            "matchId", matchId,
-            "winnerId", user.getUserId(),
-            "winnerName", username
+            "matchId", match.getMatchId(),
+            "winnerId", winner.getUserId(),
+            "winnerName", winnerName
         );
-        messaging.convertAndSend("/topic/match/" + matchId, result);
+        messaging.convertAndSend("/topic/match/" + match.getMatchId(), result);
 
         userToMatch.remove(match.getPlayer1().getUsername());
         userToMatch.remove(match.getPlayer2().getUsername());
+    }
+
+    private void sendRunResult(String username, CodeExecutionResultDto result) {
+        messaging.convertAndSend("/topic/user/" + username + "/run-result", result);
+    }
+
+    private void sendSubmitResult(String username, CodeExecutionResultDto result) {
+        messaging.convertAndSend("/topic/user/" + username + "/submit-result", result);
+    }
+
+    private CodeExecutionResultDto errorResult(String message) {
+        return new CodeExecutionResultDto(message, List.of(), null, 0, 0);
     }
 
     private void updateRatings(Match match) {

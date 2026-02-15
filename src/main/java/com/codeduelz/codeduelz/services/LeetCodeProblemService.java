@@ -2,7 +2,9 @@ package com.codeduelz.codeduelz.services;
 
 import com.codeduelz.codeduelz.entities.Difficulty;
 import com.codeduelz.codeduelz.entities.Problem;
+import com.codeduelz.codeduelz.entities.TestCase;
 import com.codeduelz.codeduelz.repo.ProblemRepo;
+import com.codeduelz.codeduelz.repo.TestCaseRepo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -12,11 +14,13 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.regex.*;
 
 @Service
 @RequiredArgsConstructor
 public class LeetCodeProblemService {
     private final ProblemRepo problemRepo;
+    private final TestCaseRepo testCaseRepo;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // In-memory index: difficulty -> list of parsed JSON nodes
@@ -121,12 +125,70 @@ public class LeetCodeProblemService {
             );
         }
 
+        // Extract and save test cases from examples if not already saved
+        extractAndSaveTestCases(problem, root);
+
         Map<String, Object> result = new HashMap<>();
         result.put("problem", problem);
         result.put("examples", examples);
         result.put("constraints", constraints);
         result.put("codeSnippets", codeSnippets);
         return result;
+    }
+
+    /**
+     * Extract test cases from LeetCode examples and save to DB.
+     * Example text format: "Input: nums = [2,7,11,15], target = 9\nOutput: [0,1]"
+     * We extract the raw Input line and Output line as test case data.
+     */
+    private void extractAndSaveTestCases(Problem problem, JsonNode root) {
+        // Check if test cases already exist for this problem
+        List<TestCase> existing = testCaseRepo.findByProblem(problem);
+        if (!existing.isEmpty()) {
+            return; // Already have test cases
+        }
+
+        if (!root.has("examples") || !root.get("examples").isArray()) {
+            return;
+        }
+
+        for (JsonNode ex : root.get("examples")) {
+            String text = ex.has("example_text") ? ex.get("example_text").asText() : "";
+            if (text.isEmpty()) continue;
+
+            // Parse "Input: ..." and "Output: ..." from the example text
+            String input = extractSection(text, "Input");
+            String output = extractSection(text, "Output");
+
+            if (!output.isEmpty()) {
+                TestCase testCase = new TestCase();
+                testCase.setProblem(problem);
+                testCase.setInput(input);
+                testCase.setExpectedOutput(output);
+                testCaseRepo.save(testCase);
+            }
+        }
+
+        System.out.println("Saved " + testCaseRepo.findByProblem(problem).size()
+                + " test cases for problem: " + problem.getTitle());
+    }
+
+    /**
+     * Extract a section (Input or Output) from LeetCode example text.
+     * Handles formats like:
+     *   "Input: nums = [2,7,11,15], target = 9"
+     *   "Output: [0,1]"
+     * Returns the value after "Section: ", trimmed.
+     */
+    private String extractSection(String text, String section) {
+        // Pattern to match "Input: ..." or "Output: ..." handling multi-line
+        // The section ends at the next "Output:", "Explanation:", or end of string
+        String pattern = "(?i)" + section + ":\\s*(.+?)(?=\\n(?:Input|Output|Explanation):|$)";
+        Matcher matcher = Pattern.compile(pattern, Pattern.DOTALL).matcher(text);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return "";
     }
 
     private Difficulty mapDifficulty(String diffStr) {

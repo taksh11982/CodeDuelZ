@@ -31,4 +31,10 @@ public class    Submission {
     private SubmissionStatus status;
     @Column(nullable = false)
     private LocalDateTime submittedAt;
+
+    private Integer testCasesPassed;
+    private Integer testCasesTotal;
+
+    @Column(columnDefinition = "TEXT")
+    private String executionOutput;
 }
