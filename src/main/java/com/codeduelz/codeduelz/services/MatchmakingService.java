@@ -15,7 +15,7 @@ public class MatchmakingService {
     private final SimpMessagingTemplate messaging;
     private final UserRepo userRepo;
     private final MatchRepo matchRepo;
-    private final CodeforcesService codeforcesService;
+    private final LeetCodeProblemService leetCodeProblemService;
     private final ProfileRepo profileRepo;
 
     // Queue per difficulty: difficulty -> list of waiting usernames
@@ -53,19 +53,10 @@ public class MatchmakingService {
         System.out.println("FOUND USERS: p1=" + (player1 != null) + ", p2=" + (player2 != null));
         if (player1 == null || player2 == null) return;
 
-        // Pick a random Codeforces problem (hardcoded list for reliability)
-        String[][] cfProblems = {
-            {"1", "A"}, {"4", "A"}, {"71", "A"}, {"158", "A"}, {"231", "A"}, // easy
-            {"96", "A"}, {"266", "B"}, {"467", "B"}, {"263", "A"}, {"339", "A"}, // easy
-            {"520", "B"}, {"677", "A"}, {"705", "A"}, {"734", "A"}, {"791", "A"}, // medium-ish
-        };
-        int idx = new java.util.Random().nextInt(cfProblems.length);
-        String contestIdStr = cfProblems[idx][0];
-        String problemIndex = cfProblems[idx][1];
-        Integer contestId = Integer.parseInt(contestIdStr);
-
-        // Fetch or get from DB
-        Problem problem = codeforcesService.getOrFetchProblem(contestId, problemIndex);
+        // Pick a random LeetCode problem from local JSON files
+        Difficulty diff = Difficulty.valueOf(difficulty);
+        Map<String, Object> problemData = leetCodeProblemService.getRandomProblemData(diff);
+        Problem problem = (Problem) problemData.get("problem");
 
         Match match = new Match();
         match.setPlayer1(player1);
@@ -79,20 +70,24 @@ public class MatchmakingService {
         userToMatch.put(username1, saved.getMatchId());
         userToMatch.put(username2, saved.getMatchId());
 
-        // Send Full Problem Data to both players (including scraped description)
-        Map<String, Object> matchData = Map.of(
-            "matchId", saved.getMatchId(),  
-            "problem", Map.of(
-                "title", problem.getTitle(),
-                "description", problem.getDescription(),
-                "difficulty", problem.getDifficulty() != null ? problem.getDifficulty().name() : "MEDIUM",
-                "url", "https://codeforces.com/problemset/problem/" + contestId + "/" + problemIndex
-            ),
-            "codeforces", Map.of("contestId", contestId, "index", problemIndex),
-            "timeLimitSeconds", 900,
-            "player1", Map.of("name", username1),
-            "player2", Map.of("name", username2)
-        );
+        // Send structured problem data to both players
+        Map<String, Object> problemPayload = new HashMap<>();
+        problemPayload.put("title", problem.getTitle());
+        problemPayload.put("description", problem.getDescription());
+        problemPayload.put("difficulty", problem.getDifficulty() != null ? problem.getDifficulty().name() : "MEDIUM");
+        problemPayload.put("url", "https://leetcode.com/problems/" + problem.getProblemSlug() + "/");
+        problemPayload.put("examples", problemData.get("examples"));
+        problemPayload.put("constraints", problemData.get("constraints"));
+        problemPayload.put("codeSnippets", problemData.get("codeSnippets"));
+
+        Map<String, Object> matchData = new HashMap<>();
+        matchData.put("matchId", saved.getMatchId());
+        matchData.put("problem", problemPayload);
+        matchData.put("timeLimitSeconds", 900);
+        matchData.put("startTimeMs", System.currentTimeMillis());
+        matchData.put("player1", Map.of("name", username1));
+        matchData.put("player2", Map.of("name", username2));
+
         System.out.println("SENDING MATCH: " + matchData);
         messaging.convertAndSend("/topic/user/" + username1, matchData);
         messaging.convertAndSend("/topic/user/" + username2, matchData);

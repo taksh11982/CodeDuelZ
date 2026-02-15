@@ -14,12 +14,12 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class ProfileServiceImpl implements ProfileService {
     @Autowired
     private ProfileRepo profileRepo;
+    @SuppressWarnings("unused")
     @Autowired
     private UserRepo userRepo;
     public Profile createProfile(User user){

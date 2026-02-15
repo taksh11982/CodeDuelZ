@@ -20,17 +20,18 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
         return stats;
     }
 
+    @SuppressWarnings("unchecked")
     private ExternalStatsDto.LeetCodeStats getLeetCode(String user) {
         try {
             HttpHeaders h = new HttpHeaders();
             h.setContentType(MediaType.APPLICATION_JSON);
             String q = "{\"query\":\"{matchedUser(username:\\\"" + user + "\\\"){submitStats:submitStatsGlobal{acSubmissionNum{difficulty count}}}}\"}";
-            Map res = rest.postForObject("https://leetcode.com/graphql", new HttpEntity<>(q, h), Map.class);
-            Map data = (Map) res.get("data");
+            Map<String, Object> res = rest.postForObject("https://leetcode.com/graphql", new HttpEntity<>(q, h), Map.class);
+            Map<String, Object> data = (Map<String, Object>) res.get("data");
             if (data.get("matchedUser") == null) return null;
-            List<Map> subs = (List<Map>) ((Map) ((Map) data.get("matchedUser")).get("submitStats")).get("acSubmissionNum");
+            List<Map<String, Object>> subs = (List<Map<String, Object>>) ((Map<String, Object>) ((Map<String, Object>) data.get("matchedUser")).get("submitStats")).get("acSubmissionNum");
             ExternalStatsDto.LeetCodeStats lc = new ExternalStatsDto.LeetCodeStats();
-            for (Map s : subs) {
+            for (Map<String, Object> s : subs) {
                 int c = (Integer) s.get("count");
                 String d = (String) s.get("difficulty");
                 if ("All".equals(d)) lc.setTotalSolved(c);
@@ -42,11 +43,12 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
         } catch (Exception e) { return null; }
     }
 
+    @SuppressWarnings("unchecked")
     private ExternalStatsDto.CodeforcesStats getCodeforces(String user) {
         try {
-            Map res = rest.getForObject("https://codeforces.com/api/user.info?handles=" + user, Map.class);
+            Map<String, Object> res = rest.getForObject("https://codeforces.com/api/user.info?handles=" + user, Map.class);
             if (!"OK".equals(res.get("status"))) return null;
-            Map u = ((List<Map>) res.get("result")).get(0);
+            Map<String, Object> u = ((List<Map<String, Object>>) res.get("result")).get(0);
             ExternalStatsDto.CodeforcesStats cf = new ExternalStatsDto.CodeforcesStats();
             cf.setRating((Integer) u.get("rating"));
             cf.setMaxRating((Integer) u.get("maxRating"));
