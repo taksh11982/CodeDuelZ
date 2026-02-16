@@ -12,7 +12,6 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
-
 @Getter
 @Setter
 @Entity
@@ -39,6 +38,9 @@ public class User implements UserDetails {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
+    @Column(nullable = false)
+    private Boolean isOnline = false;
+    private LocalDateTime lastSeen;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
