@@ -8,7 +8,6 @@ import com.codeduelz.codeduelz.entities.Profile;
 import com.codeduelz.codeduelz.entities.User;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ProfileService {
     public Profile createProfile(User user);

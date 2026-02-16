@@ -23,6 +23,7 @@ public class MatchServiceImpl implements MatchService {
     private MatchRepo matchRepo;
     @Autowired
     private UserRepo userRepo;
+    @SuppressWarnings("unused")
     @Autowired
     private ProblemRepo problemRepo;
     @Autowired

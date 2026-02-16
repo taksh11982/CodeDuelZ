@@ -1,9 +1,7 @@
 package com.codeduelz.codeduelz.dtos;
 
 import com.codeduelz.codeduelz.entities.Difficulty;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter

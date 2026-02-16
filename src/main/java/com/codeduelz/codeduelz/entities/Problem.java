@@ -20,8 +20,8 @@ public class Problem {
     @Enumerated(EnumType.STRING)
     private Difficulty difficulty;
 
-    // Codeforces specific fields
-    private Integer contestId;
-    private String problemIndex;
-    private String source; // "LOCAL" or "CODEFORCES"
+    // LeetCode specific fields
+    private String leetcodeId;    // e.g. "1"
+    private String problemSlug;   // e.g. "two-sum"
+    private String source;        // "LEETCODE"
 }

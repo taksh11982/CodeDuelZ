@@ -1,7 +1,6 @@
 package com.codeduelz.codeduelz.dtos;
 
 import lombok.Data;
-import java.util.Map;
 
 @Data
 public class ExternalStatsDto {

@@ -1,6 +1,4 @@
 package com.codeduelz.codeduelz.dtos;
-
-import com.codeduelz.codeduelz.entities.User;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
