@@ -5,4 +5,6 @@ import com.codeduelz.codeduelz.entities.User;
 
 public interface SubmissionService {
     public void submitCode(User user, SubmitCodeDto dto);
+
+    public void runSubmission(Long id);
 }

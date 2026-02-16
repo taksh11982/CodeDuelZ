@@ -5,6 +5,7 @@ import com.codeduelz.codeduelz.entities.User;
 import com.codeduelz.codeduelz.services.SubmissionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +22,11 @@ public class SubmissionController {
             @RequestBody SubmitCodeDto dto) {
 
         submissionService.submitCode(user, dto);
+    }
+
+    @PostMapping("/{id}/run")
+    public void runSubmission(@PathVariable Long id) {
+        submissionService.runSubmission(id);
     }
 
 }
