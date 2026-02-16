@@ -1,18 +1,16 @@
 package com.codeduelz.codeduelz.dtos;
 
-import com.codeduelz.codeduelz.entities.User;
 import lombok.AllArgsConstructor;
-import lombok.Getter;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
-@Getter
-@Setter
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class FriendDto {
-    private Long id;
-    private User user;
-    private User friendUser;
-    private String Status;
+    private Long friendId;
+    private Long userId;
+    private String username;
+    private String email;
+    private Boolean isOnline;
 }
