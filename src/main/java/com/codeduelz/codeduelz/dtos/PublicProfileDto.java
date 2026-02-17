@@ -13,6 +13,7 @@ public class PublicProfileDto {
     private Long userId;
     private String userName;
     private Integer rating;
+    private Integer totalMatches;
     private Integer wins;
     private Integer losses;
     private String bio;
@@ -20,5 +21,12 @@ public class PublicProfileDto {
     private String leetcodeUsername;
     private String codechefUsername;
     private String codeforcesHandle;
-}
 
+    // Calculated field: draws = total - wins - losses
+    public Integer getDraws() {
+        if (totalMatches == null || wins == null || losses == null) {
+            return 0;
+        }
+        return totalMatches - wins - losses;
+    }
+}

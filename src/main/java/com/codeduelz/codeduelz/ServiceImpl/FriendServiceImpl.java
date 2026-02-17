@@ -48,15 +48,21 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     public void acceptFriendRequest(Long requestId, User user) {
-        Friend friendRequest = friendRepo.findByIdAndUser(requestId, user)
+        // Find the request where the current user is the RECIPIENT (friendUser)
+        Friend friendRequest = friendRepo.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Friend request not found"));
+
+        // Verify this user is the recipient
+        if (!friendRequest.getFriendUser().getUserId().equals(user.getUserId())) {
+            throw new IllegalArgumentException("You are not authorized to accept this request");
+        }
 
         if (!"PENDING".equals(friendRequest.getStatus())) {
             throw new IllegalStateException("Friend request is not pending");
         }
 
         log.info("User {} accepting friend request from {}", user.getUsername(),
-                friendRequest.getFriendUser().getUsername());
+                friendRequest.getUser().getUsername());
 
         // Update both sides of the friendship to ACCEPTED
         friendRequest.setStatus("ACCEPTED");
@@ -64,7 +70,7 @@ public class FriendServiceImpl implements FriendService {
 
         // Find and update the reverse relationship
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(
-                friendRequest.getFriendUser(), user, "PENDING")
+                friendRequest.getFriendUser(), friendRequest.getUser(), "PENDING")
                 .orElse(null);
 
         if (reverseRequest != null) {
@@ -75,22 +81,28 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     public void rejectFriendRequest(Long requestId, User user) {
-        Friend friendRequest = friendRepo.findByIdAndUser(requestId, user)
+        // Find the request where the current user is the RECIPIENT (friendUser)
+        Friend friendRequest = friendRepo.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Friend request not found"));
+
+        // Verify this user is the recipient
+        if (!friendRequest.getFriendUser().getUserId().equals(user.getUserId())) {
+            throw new IllegalArgumentException("You are not authorized to reject this request");
+        }
 
         if (!"PENDING".equals(friendRequest.getStatus())) {
             throw new IllegalStateException("Friend request is not pending");
         }
 
         log.info("User {} rejecting friend request from {}", user.getUsername(),
-                friendRequest.getFriendUser().getUsername());
+                friendRequest.getUser().getUsername());
 
         // Delete both sides of the friendship
         friendRepo.delete(friendRequest);
 
         // Find and delete the reverse relationship
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(
-                friendRequest.getFriendUser(), user, "PENDING")
+                friendRequest.getFriendUser(), friendRequest.getUser(), "PENDING")
                 .orElse(null);
 
         if (reverseRequest != null) {
@@ -134,8 +146,7 @@ public class FriendServiceImpl implements FriendService {
                         user.getUserId(),
                         user.getUsername(),
                         request.getStatus(),
-                        null // createdAt not available in current Friend entity
-                ))
+                        request.getCreatedAt()))
                 .collect(Collectors.toList());
     }
 

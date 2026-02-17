@@ -5,6 +5,7 @@ import com.codeduelz.codeduelz.dtos.TestCaseResultDto;
 import com.codeduelz.codeduelz.entities.TestCase;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -17,98 +18,124 @@ import java.util.*;
 @Service
 public class CodeExecutionService {
 
-    // Using self-hosted Piston instance (Docker)
-    // Run: docker run -d -p 2000:2000 --name piston ghcr.io/engineer-man/piston
-    private static final String PISTON_URL = "http://localhost:2000/api/v2/execute";
+    // Using JDoodle API for code execution
+    @Value("${jdoodle.api.url}")
+    private String jdoodleApiUrl;
+
+    @Value("${jdoodle.client.id}")
+    private String clientId;
+
+    @Value("${jdoodle.client.secret}")
+    private String clientSecret;
+
     private static final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Map frontend language keys to Piston language names and versions
+    // Map frontend language keys to JDoodle language names and version indices
     private static final Map<String, String[]> LANGUAGE_MAP = Map.of(
-            "cpp", new String[] { "c++", "10.2.0" },
-            "python", new String[] { "python", "3.10.0" },
-            "java", new String[] { "java", "15.0.2" },
-            "javascript", new String[] { "javascript", "18.15.0" });
+            "cpp", new String[] { "cpp17", "0" },
+            "python", new String[] { "python3", "4" },
+            "java", new String[] { "java", "4" },
+            "javascript", new String[] { "nodejs", "4" });
 
     /**
-     * Execute code with the given stdin input using Piston API.
+     * Execute code with the given stdin input using JDoodle API.
      * Returns a map with keys: stdout, stderr, exitCode, error
      */
     public Map<String, Object> executeCode(String sourceCode, String language, String stdin) {
+        return executeCode(sourceCode, language, stdin, null, null);
+    }
+
+    /**
+     * Execute code with methodName and testInput for smart Java wrapping.
+     */
+    public Map<String, Object> executeCode(String sourceCode, String language, String stdin,
+            String methodName, String testInput) {
         try {
             // Auto-wrap Java code in main method if needed
             if ("java".equalsIgnoreCase(language)) {
                 String originalCode = sourceCode;
-                sourceCode = wrapJavaCodeIfNeeded(sourceCode);
+                sourceCode = wrapJavaCodeIfNeeded(sourceCode, methodName, testInput);
                 System.out.println("[DEBUG] Original code: " + originalCode);
                 System.out.println("[DEBUG] Wrapped code: " + sourceCode);
             }
             String[] langInfo = LANGUAGE_MAP.getOrDefault(language, LANGUAGE_MAP.get("cpp"));
 
             Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("clientId", clientId);
+            requestBody.put("clientSecret", clientSecret);
+            requestBody.put("script", sourceCode);
             requestBody.put("language", langInfo[0]);
-            requestBody.put("version", langInfo[1]);
-            requestBody.put("files", List.of(Map.of("content", sourceCode)));
+            requestBody.put("versionIndex", langInfo[1]);
             if (stdin != null && !stdin.isEmpty()) {
                 requestBody.put("stdin", stdin);
             }
-            // Timeouts: 10s compile, 5s run
-            requestBody.put("compile_timeout", 10000);
-            requestBody.put("run_timeout", 5000);
 
             String json = objectMapper.writeValueAsString(requestBody);
-            System.out.println("[DEBUG] Piston request: " + json);
+            System.out.println("[DEBUG] JDoodle request: " + json);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(PISTON_URL))
+                    .uri(URI.create(jdoodleApiUrl))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .timeout(Duration.ofSeconds(30))
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("[DEBUG] Piston response status: " + response.statusCode());
-            System.out.println("[DEBUG] Piston response body: " + response.body());
+            System.out.println("[DEBUG] JDoodle response status: " + response.statusCode());
+            System.out.println("[DEBUG] JDoodle response body: " + response.body());
 
             if (response.statusCode() != 200) {
-                return Map.of("error", "Piston API error: HTTP " + response.statusCode(),
+                return Map.of("error", "JDoodle API error: HTTP " + response.statusCode(),
                         "stdout", "", "stderr", "", "exitCode", -1);
             }
 
             JsonNode root = objectMapper.readTree(response.body());
 
-            // Check for compile stage errors
-            JsonNode compile = root.get("compile");
-            if (compile != null && compile.has("code") && compile.get("code").asInt() != 0) {
-                String compileStderr = compile.has("stderr") ? compile.get("stderr").asText() : "";
-                String compileOutput = compile.has("output") ? compile.get("output").asText() : "";
-                return Map.of(
-                        "stdout", "",
-                        "stderr", compileStderr.isEmpty() ? compileOutput : compileStderr,
-                        "exitCode", compile.get("code").asInt(),
-                        "compilationError", true);
+            // JDoodle response format:
+            // { "output": "...", "statusCode": 200, "memory": "...", "cpuTime": "..." }
+            // For compilation errors, output contains the error message
+            String output = root.has("output") ? root.get("output").asText() : "";
+            int statusCode = root.has("statusCode") ? root.get("statusCode").asInt() : -1;
+
+            // Check for compilation or runtime errors
+            // JDoodle returns statusCode 200 for successful execution
+            // Non-zero statusCode or error messages in output indicate failures
+            boolean hasError = statusCode != 200;
+            boolean isCompilationError = false;
+            String stderr = "";
+            String stdout = output;
+
+            // Detect compilation errors by checking for common error patterns
+            if (hasError || output.contains("error:") || output.contains("Error:") ||
+                    output.contains("Exception") || output.contains("SyntaxError") ||
+                    output.contains("compilation terminated")) {
+
+                // Check if it's a compilation error vs runtime error
+                if (output.contains("error:") && !output.contains("runtime error") ||
+                        output.contains("compilation terminated") ||
+                        output.contains("SyntaxError") ||
+                        (language.equals("java") && output.contains("error:"))) {
+                    isCompilationError = true;
+                    stderr = output;
+                    stdout = "";
+                } else if (hasError) {
+                    // Runtime error
+                    stderr = output;
+                    stdout = "";
+                }
             }
-
-            // Get run stage results
-            JsonNode run = root.get("run");
-            String stdout = run != null && run.has("stdout") ? run.get("stdout").asText() : "";
-            String stderr = run != null && run.has("stderr") ? run.get("stderr").asText() : "";
-            int exitCode = run != null && run.has("code") ? run.get("code").asInt() : -1;
-
-            // Check if it was killed (timeout)
-            boolean timedOut = run != null && run.has("signal") &&
-                    "SIGKILL".equals(run.get("signal").asText());
 
             Map<String, Object> result = new HashMap<>();
             result.put("stdout", stdout);
             result.put("stderr", stderr);
-            result.put("exitCode", exitCode);
-            result.put("timedOut", timedOut);
-            result.put("compilationError", false);
+            result.put("exitCode", hasError ? 1 : 0);
+            result.put("timedOut", false); // JDoodle handles timeouts internally
+            result.put("compilationError", isCompilationError);
             System.out.println("[DEBUG] Execution result - stdout: '" + stdout + "', stderr: '" + stderr
-                    + "', exitCode: " + exitCode);
+                    + "', exitCode: " + (hasError ? 1 : 0));
             return result;
 
         } catch (Exception e) {
@@ -123,13 +150,27 @@ public class CodeExecutionService {
      */
     public CodeExecutionResultDto evaluateAgainstTestCases(String sourceCode, String language,
             List<TestCase> testCases) {
+        return evaluateAgainstTestCases(sourceCode, language, testCases, null);
+    }
+
+    /**
+     * Evaluate code against a list of test cases with smart Java wrapping.
+     */
+    public CodeExecutionResultDto evaluateAgainstTestCases(String sourceCode, String language,
+            List<TestCase> testCases, String methodName) {
         List<TestCaseResultDto> results = new ArrayList<>();
         int passed = 0;
         String overallStatus = "ACCEPTED";
         String compilationError = null;
 
         for (TestCase tc : testCases) {
-            Map<String, Object> execResult = executeCode(sourceCode, language, tc.getInput());
+            // For Java with methodName, pass testInput for smart wrapping
+            Map<String, Object> execResult;
+            if ("java".equalsIgnoreCase(language) && methodName != null && !methodName.isEmpty()) {
+                execResult = executeCode(sourceCode, language, tc.getInput(), methodName, tc.getInput());
+            } else {
+                execResult = executeCode(sourceCode, language, tc.getInput());
+            }
 
             // Check for compilation error
             if (Boolean.TRUE.equals(execResult.get("compilationError"))) {
@@ -215,6 +256,10 @@ public class CodeExecutionService {
      * Output: Unchanged (already has class)
      */
     private String wrapJavaCodeIfNeeded(String code) {
+        return wrapJavaCodeIfNeeded(code, null, null);
+    }
+
+    private String wrapJavaCodeIfNeeded(String code, String methodName, String testInput) {
         String trimmedCode = code.trim();
 
         // Check if code already has a class definition
@@ -222,13 +267,18 @@ public class CodeExecutionService {
             // Code already has a class/interface/enum definition
             // Check if it has a main method
             if (!trimmedCode.matches("(?s).*public\\s+static\\s+void\\s+main\\s*\\(.*")) {
-                // Has class but no main method - wrap the entire code in a Main class with main
-                // that instantiates it
-                return "public class Main {\n" +
-                        "    public static void main(String[] args) {\n" +
-                        "        " + trimmedCode + "\n" +
-                        "    }\n" +
-                        "}";
+                // Has class but no main method - generate smart wrapper
+                if (methodName != null && !methodName.isEmpty() && testInput != null) {
+                    // Smart wrapping: instantiate Solution and call the method
+                    return generateSmartWrapper(trimmedCode, methodName, testInput);
+                } else {
+                    // Fallback: basic wrapping (old behavior)
+                    return "public class Main {\n" +
+                            "    public static void main(String[] args) {\n" +
+                            "        " + trimmedCode + "\n" +
+                            "    }\n" +
+                            "}";
+                }
             }
             // Has both class and main method
             return trimmedCode;
@@ -248,5 +298,82 @@ public class CodeExecutionService {
                 "        " + trimmedCode + "\n" +
                 "    }\n" +
                 "}";
+    }
+
+    /**
+     * Generate smart wrapper for LeetCode-style Solution classes.
+     * Creates a Main class that instantiates Solution and calls the method with
+     * test input.
+     */
+    private String generateSmartWrapper(String solutionCode, String methodName, String testInput) {
+        // Extract class name from the solution code (usually "Solution")
+        String className = "Solution";
+
+        // Parse and convert test input to valid Java code
+        String javaInput = parseTestInput(testInput);
+
+        // Build the wrapper code
+        StringBuilder wrapper = new StringBuilder();
+        wrapper.append("import java.util.*;\n\n");
+        wrapper.append(solutionCode).append("\n\n");
+        wrapper.append("public class Main {\n");
+        wrapper.append("    public static void main(String[] args) {\n");
+        wrapper.append("        ").append(className).append(" sol = new ").append(className).append("();\n");
+        wrapper.append("        \n");
+        wrapper.append("        // Test case input\n");
+        wrapper.append("        ").append(javaInput).append("\n");
+        wrapper.append("        \n");
+        wrapper.append("        Object result = sol.").append(methodName).append("(input);\n");
+        wrapper.append("        System.out.print(result);\n");
+        wrapper.append("    }\n");
+        wrapper.append("}\n");
+
+        return wrapper.toString();
+    }
+
+    /**
+     * Parse test input and convert to valid Java code.
+     */
+    private String parseTestInput(String testInput) {
+        if (testInput == null || testInput.trim().isEmpty()) {
+            return "int input = 0;";
+        }
+
+        String trimmed = testInput.trim();
+
+        // If it already looks like valid Java code, return as-is
+        if (trimmed.matches(".*\\b(int|long|double|float|String|boolean|char)\\b.*")) {
+            return trimmed.endsWith(";") ? trimmed : trimmed + ";";
+        }
+
+        // Parse "varName = [...]" format (array)
+        if (trimmed.matches("\\w+\\s*=\\s*\\[.*\\]")) {
+            String arrayContent = trimmed.substring(trimmed.indexOf('[') + 1, trimmed.lastIndexOf(']'));
+            return "int[] input = {" + arrayContent + "};";
+        }
+
+        // Parse "[...]" format (array without variable name)
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            String arrayContent = trimmed.substring(1, trimmed.length() - 1);
+            return "int[] input = {" + arrayContent + "};";
+        }
+
+        // Parse quoted string
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            return "String input = " + trimmed + ";";
+        }
+
+        // Parse plain number
+        if (trimmed.matches("-?\\d+")) {
+            return "int input = " + trimmed + ";";
+        }
+
+        // Parse decimal number
+        if (trimmed.matches("-?\\d+\\.\\d+")) {
+            return "double input = " + trimmed + ";";
+        }
+
+        // Fallback: treat as string
+        return "String input = \"" + trimmed + "\";";
     }
 }

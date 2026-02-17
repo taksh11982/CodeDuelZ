@@ -22,8 +22,9 @@ public class ProfileServiceImpl implements ProfileService {
     @SuppressWarnings("unused")
     @Autowired
     private UserRepo userRepo;
-    public Profile createProfile(User user){
-        Profile profile= new Profile();
+
+    public Profile createProfile(User user) {
+        Profile profile = new Profile();
         profile.setUser(user);
         profile.setWins(0);
         profile.setTotalMatches(0);
@@ -92,6 +93,7 @@ public class ProfileServiceImpl implements ProfileService {
         dto.setUserId(user.getUserId());
         dto.setUserName(user.getUsername());
         dto.setRating(profile.getRating());
+        dto.setTotalMatches(profile.getTotalMatches());
         dto.setWins(profile.getWins());
         dto.setLosses(profile.getLosses());
         dto.setBio(profile.getBio());
@@ -107,7 +109,7 @@ public class ProfileServiceImpl implements ProfileService {
     public List<LeaderboardDto> getLeaderboard() {
         List<Profile> profiles = profileRepo.findTop10ByOrderByRatingDesc();
         List<LeaderboardDto> leaderboard = new ArrayList<>();
-        int rank=1;
+        int rank = 1;
         for (Profile profile : profiles) {
             User user = profile.getUser();
             LeaderboardDto dto = new LeaderboardDto();
@@ -121,6 +123,5 @@ public class ProfileServiceImpl implements ProfileService {
         }
         return leaderboard;
     }
-
 
 }

@@ -7,22 +7,27 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
-@Table(
-        name = "friends",
-        uniqueConstraints = {
-                @UniqueConstraint(columnNames = {"user_id","friend_user_id"})
-        }
-)
+@Table(name = "friends", uniqueConstraints = {
+                @UniqueConstraint(columnNames = { "user_id", "friend_user_id" })
+})
 public class Friend {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-    @ManyToOne
-    @JoinColumn(name = "user_id",nullable = false)
-    private User user;
-    @ManyToOne
-    @JoinColumn(name = "friend_user_id",nullable = false)
-    private User friendUser;
-    @Column(nullable = false)
-    private String status;
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
+        @ManyToOne
+        @JoinColumn(name = "user_id", nullable = false)
+        private User user;
+        @ManyToOne
+        @JoinColumn(name = "friend_user_id", nullable = false)
+        private User friendUser;
+        @Column(nullable = false)
+        private String status;
+
+        @Column(name = "created_at", nullable = false, updatable = false)
+        private java.time.LocalDateTime createdAt;
+
+        @PrePersist
+        protected void onCreate() {
+                createdAt = java.time.LocalDateTime.now();
+        }
 }
