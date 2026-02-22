@@ -48,7 +48,8 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     public void acceptFriendRequest(Long requestId, User user) {
-        Friend friendRequest = friendRepo.findByIdAndUser(requestId, user)
+        // requestId points to the record where friendUser=currentUser (from getPendingRequests)
+        Friend friendRequest = friendRepo.findByIdAndFriendUser(requestId, user)
                 .orElseThrow(() -> new IllegalArgumentException("Friend request not found"));
 
         if (!"PENDING".equals(friendRequest.getStatus())) {
@@ -56,15 +57,15 @@ public class FriendServiceImpl implements FriendService {
         }
 
         log.info("User {} accepting friend request from {}", user.getUsername(),
-                friendRequest.getFriendUser().getUsername());
+                friendRequest.getUser().getUsername());
 
-        // Update both sides of the friendship to ACCEPTED
+        // Update this side (sender -> currentUser) to ACCEPTED
         friendRequest.setStatus("ACCEPTED");
         friendRepo.save(friendRequest);
 
-        // Find and update the reverse relationship
+        // Find and update the reverse relationship (currentUser -> sender)
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(
-                friendRequest.getFriendUser(), user, "PENDING")
+                user, friendRequest.getUser(), "PENDING")
                 .orElse(null);
 
         if (reverseRequest != null) {
@@ -75,7 +76,8 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     public void rejectFriendRequest(Long requestId, User user) {
-        Friend friendRequest = friendRepo.findByIdAndUser(requestId, user)
+        // requestId points to the record where friendUser=currentUser (from getPendingRequests)
+        Friend friendRequest = friendRepo.findByIdAndFriendUser(requestId, user)
                 .orElseThrow(() -> new IllegalArgumentException("Friend request not found"));
 
         if (!"PENDING".equals(friendRequest.getStatus())) {
@@ -83,14 +85,14 @@ public class FriendServiceImpl implements FriendService {
         }
 
         log.info("User {} rejecting friend request from {}", user.getUsername(),
-                friendRequest.getFriendUser().getUsername());
+                friendRequest.getUser().getUsername());
 
         // Delete both sides of the friendship
         friendRepo.delete(friendRequest);
 
-        // Find and delete the reverse relationship
+        // Find and delete the reverse relationship (currentUser -> sender)
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(
-                friendRequest.getFriendUser(), user, "PENDING")
+                user, friendRequest.getUser(), "PENDING")
                 .orElse(null);
 
         if (reverseRequest != null) {

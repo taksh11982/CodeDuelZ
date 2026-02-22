@@ -2,6 +2,7 @@ package com.codeduelz.codeduelz.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -41,8 +42,13 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,FirebaseAuthenticationFilter firebaseAuthenticationFilter) throws Exception {
 
         http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
+                .formLogin(form -> form.disable())
+                .httpBasic(basic -> basic.disable())
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers("/").permitAll()
                         .requestMatchers("/health").permitAll()
                         .requestMatchers("/public/**").permitAll()
@@ -50,15 +56,13 @@ public class SecurityConfig {
                         .requestMatchers("/profile/*").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/external-stats").authenticated()
+                        .requestMatchers("/api/friends/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(
                         firebaseAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
                 );
-            http.formLogin(form -> form.disable());
-            http.httpBasic(basic -> basic.disable());
-            http.cors(cors -> {});
         return http.build();
     }
 }

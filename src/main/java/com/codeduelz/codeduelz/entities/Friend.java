@@ -3,6 +3,9 @@ package com.codeduelz.codeduelz.entities;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.time.LocalDateTime;
 
 @Getter
 @Setter
@@ -25,4 +28,7 @@ public class Friend {
     private User friendUser;
     @Column(nullable = false)
     private String status;
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
 }
