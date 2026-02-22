@@ -54,12 +54,18 @@ public class CodeExecutionService {
     public Map<String, Object> executeCode(String sourceCode, String language, String stdin,
             String methodName, String testInput) {
         try {
-            // Auto-wrap Java code in main method if needed
+            // Auto-wrap code in main method/function if needed
             if ("java".equalsIgnoreCase(language)) {
                 String originalCode = sourceCode;
                 sourceCode = wrapJavaCodeIfNeeded(sourceCode, methodName, testInput);
                 System.out.println("[DEBUG] Original code: " + originalCode);
                 System.out.println("[DEBUG] Wrapped code: " + sourceCode);
+            } else if ("cpp".equalsIgnoreCase(language) && methodName != null && !methodName.isEmpty()
+                    && testInput != null) {
+                String originalCode = sourceCode;
+                sourceCode = wrapCppCodeIfNeeded(sourceCode, methodName, testInput);
+                System.out.println("[DEBUG] Original C++ code: " + originalCode);
+                System.out.println("[DEBUG] Wrapped C++ code: " + sourceCode);
             }
             String[] langInfo = LANGUAGE_MAP.getOrDefault(language, LANGUAGE_MAP.get("cpp"));
 
@@ -164,9 +170,10 @@ public class CodeExecutionService {
         String compilationError = null;
 
         for (TestCase tc : testCases) {
-            // For Java with methodName, pass testInput for smart wrapping
+            // For Java and C++ with methodName, pass testInput for smart wrapping
             Map<String, Object> execResult;
-            if ("java".equalsIgnoreCase(language) && methodName != null && !methodName.isEmpty()) {
+            boolean needsWrapping = methodName != null && !methodName.isEmpty();
+            if (needsWrapping && ("java".equalsIgnoreCase(language) || "cpp".equalsIgnoreCase(language))) {
                 execResult = executeCode(sourceCode, language, tc.getInput(), methodName, tc.getInput());
             } else {
                 execResult = executeCode(sourceCode, language, tc.getInput());
@@ -234,12 +241,19 @@ public class CodeExecutionService {
     }
 
     /**
-     * Normalize output for comparison: trim whitespace, normalize line endings
+     * Normalize output for comparison: trim whitespace, normalize line endings,
+     * and strip spaces after commas/inside brackets so [1, 2, 3] == [1,2,3].
      */
     private String normalizeOutput(String output) {
         if (output == null)
             return "";
-        return output.replaceAll("\\r\\n", "\n").replaceAll("\\s+$", "").trim();
+        return output
+                .replaceAll("\\r\\n", "\n") // normalize line endings
+                .replaceAll(",\\s+", ",") // "1, 2, 3" -> "1,2,3"
+                .replaceAll("\\[\\s+", "[") // "[ 1" -> "[1"
+                .replaceAll("\\s+\\]", "]") // "1 ]" -> "1]"
+                .replaceAll("\\s+$", "")
+                .trim();
     }
 
     /**
@@ -301,30 +315,129 @@ public class CodeExecutionService {
     }
 
     /**
+     * Wrap C++ Solution class with a main() function if it doesn't have one.
+     * Always prepends standard headers so 'string', 'vector' etc. are available.
+     */
+    private String wrapCppCodeIfNeeded(String code, String methodName, String testInput) {
+        String trimmed = code.trim();
+
+        // Always prepend standard headers if not already present
+        String headers = "";
+        if (!trimmed.contains("#include")) {
+            headers = "#include <bits/stdc++.h>\nusing namespace std;\n\n";
+        }
+
+        // If it already has a main function, just add headers and return
+        if (trimmed.contains("int main(") || trimmed.contains("int main (")) {
+            return headers + trimmed;
+        }
+
+        return generateCppWrapper(trimmed, methodName, testInput);
+    }
+
+    /**
+     * Generate a C++ main() that instantiates Solution, feeds test input, and
+     * prints result.
+     */
+    private String generateCppWrapper(String solutionCode, String methodName, String testInput) {
+        String[] parsed = parseTestInputMulti(testInput);
+        String declarations = parsed[0];
+        String argList = parsed[1];
+
+        // Convert Java-style declarations to C++ style:
+        // int arg0 = 31; -> same (valid C++)
+        // int[] arg0 = ... -> int arg0[] = ...
+        // int[][] arg0 = ... -> (handled as vector, but flatten for simple cases)
+        String cppDecls = declarations
+                .replace("int[] ", "int[] ") // keep, handled below
+                .replace("int[][] ", "int[][] "); // keep, handled below
+        // Replace Java array syntax with C++ array syntax
+        cppDecls = cppDecls.replaceAll("int\\[\\]\\[\\] (\\w+) = \\{(.*?)\\};",
+                "// 2D array input not fully auto-typed in C++ — pass manually");
+        cppDecls = cppDecls.replaceAll("int\\[\\] (\\w+) = \\{(.*?)\\};",
+                "vector<int> $1 = {$2};");
+        // Remove semicolons on blank/comment lines
+        cppDecls = cppDecls.replace("String ", "string ");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("#include <bits/stdc++.h>\n");
+        sb.append("using namespace std;\n\n");
+        sb.append(solutionCode).append("\n\n");
+        sb.append("int main() {\n");
+        sb.append("    Solution sol;\n");
+        for (String decl : cppDecls.split("\n")) {
+            sb.append("    ").append(decl).append("\n");
+        }
+        sb.append("    auto result = sol.").append(methodName).append("(").append(argList).append(");\n");
+        // Print result — for vectors use a loop, for primitives use cout
+        sb.append("    cout << result << endl;\n");
+        sb.append("    return 0;\n");
+        sb.append("}\n");
+        return sb.toString();
+    }
+
+    /**
      * Generate smart wrapper for LeetCode-style Solution classes.
      * Creates a Main class that instantiates Solution and calls the method with
      * test input.
+     * Supports multi-parameter methods by splitting multi-line test inputs.
      */
     private String generateSmartWrapper(String solutionCode, String methodName, String testInput) {
-        // Extract class name from the solution code (usually "Solution")
         String className = "Solution";
 
-        // Parse and convert test input to valid Java code
-        String javaInput = parseTestInput(testInput);
+        // Split test input lines (one per parameter)
+        String[] inputLines = (testInput == null || testInput.trim().isEmpty())
+                ? new String[0]
+                : testInput.trim().split("\\r?\\n");
 
-        // Build the wrapper code
+        // Extract actual parameter types from the solution method signature
+        List<String> paramTypes = extractParamTypes(solutionCode, methodName);
+
+        // Build declarations and argument list using real types
+        StringBuilder decls = new StringBuilder();
+        StringBuilder argList = new StringBuilder();
+        for (int i = 0; i < inputLines.length; i++) {
+            String argName = "arg" + i;
+            String rawValue = inputLines[i].trim();
+            String type = (i < paramTypes.size()) ? paramTypes.get(i) : null;
+            String decl = buildTypedDeclaration(type, rawValue, argName);
+            if (i > 0) {
+                decls.append("\n");
+                argList.append(", ");
+            }
+            decls.append(decl);
+            argList.append(argName);
+        }
+
         StringBuilder wrapper = new StringBuilder();
-        wrapper.append("import java.util.*;\n\n");
+        wrapper.append("import java.util.*;\n");
+        wrapper.append("import java.util.Arrays;\n\n");
         wrapper.append(solutionCode).append("\n\n");
         wrapper.append("public class Main {\n");
+        // Helper: prints 1D/2D arrays and Lists properly
+        wrapper.append("    static void printResult(Object r) {\n");
+        wrapper.append("        if (r instanceof int[][]) {\n");
+        wrapper.append("            System.out.print(Arrays.deepToString((int[][]) r));\n");
+        wrapper.append("        } else if (r instanceof int[]) {\n");
+        wrapper.append("            System.out.print(Arrays.toString((int[]) r));\n");
+        wrapper.append("        } else if (r instanceof String[]) {\n");
+        wrapper.append("            System.out.print(Arrays.toString((String[]) r));\n");
+        wrapper.append("        } else {\n");
+        wrapper.append("            System.out.print(r);\n");
+        wrapper.append("        }\n");
+        wrapper.append("    }\n");
         wrapper.append("    public static void main(String[] args) {\n");
         wrapper.append("        ").append(className).append(" sol = new ").append(className).append("();\n");
         wrapper.append("        \n");
         wrapper.append("        // Test case input\n");
-        wrapper.append("        ").append(javaInput).append("\n");
+        if (decls.length() > 0) {
+            for (String decl : decls.toString().split("\n")) {
+                wrapper.append("        ").append(decl).append("\n");
+            }
+        }
         wrapper.append("        \n");
-        wrapper.append("        Object result = sol.").append(methodName).append("(input);\n");
-        wrapper.append("        System.out.print(result);\n");
+        wrapper.append("        Object result = sol.").append(methodName).append("(").append(argList).append(");\n");
+        wrapper.append("        printResult(result);\n");
         wrapper.append("    }\n");
         wrapper.append("}\n");
 
@@ -332,48 +445,249 @@ public class CodeExecutionService {
     }
 
     /**
-     * Parse test input and convert to valid Java code.
+     * Extract ordered parameter types from the method signature inside
+     * solutionCode.
+     * Handles generics like List<Integer>, Map<Integer,Integer> correctly.
+     * Returns empty list if the method signature can't be found.
      */
-    private String parseTestInput(String testInput) {
+    private List<String> extractParamTypes(String solutionCode, String methodName) {
+        List<String> types = new ArrayList<>();
+        // Match: <anything> methodName(<params>)
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "[\\w<>\\[\\],\\s]+?\\s+" + java.util.regex.Pattern.quote(methodName) + "\\s*\\(([^)]*?)\\)",
+                java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher m = p.matcher(solutionCode);
+        if (!m.find())
+            return types;
+
+        String paramStr = m.group(1).trim();
+        if (paramStr.isEmpty())
+            return types;
+
+        // Split parameters by comma, but ignore commas inside angle brackets (generics)
+        List<String> params = new ArrayList<>();
+        int depth = 0;
+        StringBuilder current = new StringBuilder();
+        for (char ch : paramStr.toCharArray()) {
+            if (ch == '<')
+                depth++;
+            else if (ch == '>')
+                depth--;
+            else if (ch == ',' && depth == 0) {
+                params.add(current.toString().trim());
+                current.setLength(0);
+                continue;
+            }
+            current.append(ch);
+        }
+        if (current.length() > 0)
+            params.add(current.toString().trim());
+
+        // Each param is like "List<Integer> nums" or "int[] arr" — extract the type
+        // part
+        for (String param : params) {
+            // Last token is the variable name; everything before is the type
+            String[] parts = param.trim().split("\\s+(?=[\\w]+$)");
+            if (parts.length >= 2) {
+                types.add(parts[0].trim()); // e.g. "List<Integer>" or "int[]"
+            } else if (parts.length == 1) {
+                types.add(parts[0].trim()); // fallback
+            }
+        }
+        return types;
+    }
+
+    /**
+     * Build a Java variable declaration for argName using the known type and raw
+     * value.
+     * Falls back to parseSingleValue() when type is null or unknown.
+     */
+    private String buildTypedDeclaration(String type, String rawValue, String argName) {
+        if (type == null || type.isEmpty()) {
+            return parseSingleValue(rawValue, argName);
+        }
+
+        String t = type.trim();
+
+        // Strip LeetCode-style "varname = " prefix if present (e.g. "nums = [2,3,5,7]"
+        // -> "[2,3,5,7]")
+        String valueOnly = rawValue.trim();
+        if (valueOnly.matches("\\w+\\s*=\\s*\\[.*")) {
+            valueOnly = valueOnly.substring(valueOnly.indexOf('[')).trim();
+        } else if (valueOnly.matches("\\w+\\s*=\\s*.*")) {
+            valueOnly = valueOnly.substring(valueOnly.indexOf('=') + 1).trim();
+        }
+
+        // Strip outer [ ] to get just the CSV content (for non-2D arrays)
+        String inner = valueOnly;
+        if (inner.startsWith("[") && inner.endsWith("]") && !inner.startsWith("[[")) {
+            inner = inner.substring(1, inner.length() - 1);
+        }
+
+        // List<Integer> / List<Long> / List<String>
+        if (t.startsWith("List<")) {
+            String genericType = t.substring(5, t.length() - 1); // e.g. "Integer"
+            // Build: Arrays.asList(1,2,3) works for List<Integer>
+            return "List<" + genericType + "> " + argName + " = new ArrayList<>(Arrays.asList("
+                    + wrapElements(inner, genericType) + "));";
+        }
+
+        // int[]
+        if (t.equals("int[]")) {
+            // Handle 2D input [[1,2],[3,4]]
+            if (valueOnly.startsWith("[[")) {
+                String i2 = valueOnly.substring(1, valueOnly.length() - 1)
+                        .replaceAll("\\[", "{").replaceAll("\\]", "}");
+                return "int[][] " + argName + " = {" + i2 + "};";
+            }
+            return "int[] " + argName + " = {" + inner + "};";
+        }
+
+        // int[][]
+        if (t.equals("int[][]")) {
+            String i2 = valueOnly.substring(1, valueOnly.length() - 1)
+                    .replaceAll("\\[", "{").replaceAll("\\]", "}");
+            return "int[][] " + argName + " = {" + i2 + "};";
+        }
+
+        // String (unquoted in test input)
+        if (t.equals("String")) {
+            String v = valueOnly.startsWith("\"") ? valueOnly : "\"" + valueOnly + "\"";
+            return "String " + argName + " = " + v + ";";
+        }
+
+        // Primitive types: int, long, double, boolean, char
+        if (t.matches("int|long|double|float|boolean|char")) {
+            return t + " " + argName + " = " + valueOnly + ";";
+        }
+
+        // Fallback: parseSingleValue infers type from value
+        return parseSingleValue(valueOnly, argName);
+    }
+
+    /**
+     * Wrap comma-separated elements for Arrays.asList().
+     * For Integer/Long, values are kept as-is.
+     * For String, wrap each element in quotes if not already quoted.
+     */
+    private String wrapElements(String csv, String genericType) {
+        if (csv.trim().isEmpty())
+            return "";
+        if (!genericType.equals("String"))
+            return csv; // Integers/Longs work as-is
+        // Wrap each token in quotes if not already
+        String[] tokens = csv.split(",");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < tokens.length; i++) {
+            String tok = tokens[i].trim();
+            if (!tok.startsWith("\""))
+                tok = "\"" + tok + "\"";
+            if (i > 0)
+                sb.append(", ");
+            sb.append(tok);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Parse test input (single or multi-line) into Java variable declarations and
+     * an argument list.
+     *
+     * Returns String[2]:
+     * [0] = newline-separated variable declarations (e.g. "int arg0 = 31;\nint arg1
+     * = 8;")
+     * [1] = comma-separated argument names (e.g. "arg0, arg1")
+     *
+     * Each line of testInput is treated as one argument.
+     * Supports: plain ints, decimals, quoted strings, arrays ([1,2,3]), and plain
+     * text.
+     */
+    private String[] parseTestInputMulti(String testInput) {
         if (testInput == null || testInput.trim().isEmpty()) {
-            return "int input = 0;";
+            return new String[] { "int arg0 = 0;", "arg0" };
         }
 
-        String trimmed = testInput.trim();
+        // Split on newlines — each line is one parameter
+        String[] lines = testInput.trim().split("\\r?\\n");
 
-        // If it already looks like valid Java code, return as-is
-        if (trimmed.matches(".*\\b(int|long|double|float|String|boolean|char)\\b.*")) {
-            return trimmed.endsWith(";") ? trimmed : trimmed + ";";
+        // Single-line shortcut keeps behaviour identical to before
+        if (lines.length == 1) {
+            String decl = parseSingleValue(lines[0].trim(), "arg0");
+            return new String[] { decl, "arg0" };
         }
 
-        // Parse "varName = [...]" format (array)
-        if (trimmed.matches("\\w+\\s*=\\s*\\[.*\\]")) {
-            String arrayContent = trimmed.substring(trimmed.indexOf('[') + 1, trimmed.lastIndexOf(']'));
-            return "int[] input = {" + arrayContent + "};";
+        // Multi-parameter: parse each line independently
+        StringBuilder decls = new StringBuilder();
+        StringBuilder argList = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            String argName = "arg" + i;
+            String decl = parseSingleValue(lines[i].trim(), argName);
+            if (i > 0) {
+                decls.append("\n");
+                argList.append(", ");
+            }
+            decls.append(decl);
+            argList.append(argName);
+        }
+        return new String[] { decls.toString(), argList.toString() };
+    }
+
+    /**
+     * Parse a single value token into a typed Java variable declaration.
+     * Supports: plain int, decimal, quoted string, array literal [1,2,3], plain
+     * text.
+     */
+    private String parseSingleValue(String token, String varName) {
+        if (token == null || token.isEmpty()) {
+            return "int " + varName + " = 0;";
         }
 
-        // Parse "[...]" format (array without variable name)
-        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-            String arrayContent = trimmed.substring(1, trimmed.length() - 1);
-            return "int[] input = {" + arrayContent + "};";
+        // Already valid Java type declaration — return as-is (edge case)
+        if (token.matches(".*\\b(int|long|double|float|String|boolean|char)\\b.*")) {
+            return token.endsWith(";") ? token : token + ";";
         }
 
-        // Parse quoted string
-        if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
-            return "String input = " + trimmed + ";";
+        // 2D Array: "[[1,2],[3,4]]" — must be checked BEFORE 1D array
+        if (token.startsWith("[[") && token.endsWith("]]")) {
+            // Convert [[1,2],[3,4]] → {{1,2},{3,4}}
+            String inner = token.substring(1, token.length() - 1); // [1,2],[3,4]
+            // Replace each inner [...] with {...}
+            inner = inner.replaceAll("\\[", "{").replaceAll("\\]", "}");
+            return "int[][] " + varName + " = {" + inner + "};";
         }
 
-        // Parse plain number
-        if (trimmed.matches("-?\\d+")) {
-            return "int input = " + trimmed + ";";
+        // 1D Array: "[1,2,3]" or "nums = [1,2,3]"
+        String arrayContent = null;
+        if (token.matches("\\w+\\s*=\\s*\\[.*\\]")) {
+            arrayContent = token.substring(token.indexOf('[') + 1, token.lastIndexOf(']'));
+        } else if (token.startsWith("[") && token.endsWith("]")) {
+            arrayContent = token.substring(1, token.length() - 1);
+        }
+        if (arrayContent != null) {
+            return "int[] " + varName + " = {" + arrayContent + "};";
         }
 
-        // Parse decimal number
-        if (trimmed.matches("-?\\d+\\.\\d+")) {
-            return "double input = " + trimmed + ";";
+        // Quoted string: "hello"
+        if (token.startsWith("\"") && token.endsWith("\"")) {
+            return "String " + varName + " = " + token + ";";
         }
 
-        // Fallback: treat as string
-        return "String input = \"" + trimmed + "\";";
+        // Plain integer
+        if (token.matches("-?\\d+")) {
+            return "int " + varName + " = " + token + ";";
+        }
+
+        // Decimal number
+        if (token.matches("-?\\d+\\.\\d+")) {
+            return "double " + varName + " = " + token + ";";
+        }
+
+        // Boolean
+        if (token.equals("true") || token.equals("false")) {
+            return "boolean " + varName + " = " + token + ";";
+        }
+
+        // Fallback: treat as String literal
+        return "String " + varName + " = \"" + token + "\";";
     }
 }
