@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 
 @Service
 @AllArgsConstructor
@@ -46,20 +48,25 @@ public class UserServiceImpl implements UserService {
         String email = token.getEmail();
         String uid = token.getUid();
 
-        return userRepo.findByProviderId(uid)
+        User user = userRepo.findByProviderId(uid)
                 .orElseGet(() -> {
-                    User user = new User();
-                    user.setProviderId(uid);              // Firebase UID
-                    user.setEmail(email);
-                    user.setUserName(
+                    User newUser = new User();
+                    newUser.setProviderId(uid);              // Firebase UID
+                    newUser.setEmail(email);
+                    newUser.setUserName(
                             email != null
                                     ? email.split("@")[0]
                                     : "user_" + uid.substring(0, 6)
                     );
-                    user.setProvider(AuthProvider.FIREBASE);
-                    user.setRole(Role.USER);
-                    return userRepo.save(user);
+                    newUser.setProvider(AuthProvider.FIREBASE);
+                    newUser.setRole(Role.USER);
+                    return newUser;
                 });
+
+        // Update online status on every authenticated request
+        user.setIsOnline(true);
+        user.setLastSeen(LocalDateTime.now());
+        return userRepo.save(user);
     }
 
 }
