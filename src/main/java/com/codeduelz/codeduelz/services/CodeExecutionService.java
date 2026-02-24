@@ -509,8 +509,8 @@ public class CodeExecutionService {
 
         String t = type.trim();
 
-        // Strip LeetCode-style "varname = " prefix if present (e.g. "nums = [2,3,5,7]"
-        // -> "[2,3,5,7]")
+        // Strip LeetCode-style "varname = " prefix (e.g. "nums = [2,3,5,7]" ->
+        // "[2,3,5,7]")
         String valueOnly = rawValue.trim();
         if (valueOnly.matches("\\w+\\s*=\\s*\\[.*")) {
             valueOnly = valueOnly.substring(valueOnly.indexOf('[')).trim();
@@ -524,17 +524,52 @@ public class CodeExecutionService {
             inner = inner.substring(1, inner.length() - 1);
         }
 
-        // List<Integer> / List<Long> / List<String>
+        // List<X>
         if (t.startsWith("List<")) {
-            String genericType = t.substring(5, t.length() - 1); // e.g. "Integer"
-            // Build: Arrays.asList(1,2,3) works for List<Integer>
+            String genericType = t.substring(5, t.length() - 1);
+            if (genericType.startsWith("List<")) {
+                // List<List<Integer>> — build as ArrayList of ArrayLists
+                String elemType = genericType.substring(5, genericType.length() - 1);
+                // valueOnly looks like [[1,2],[3,4]]
+                String content = valueOnly.startsWith("[[") ? valueOnly.substring(1, valueOnly.length() - 1)
+                        : valueOnly;
+                // split inner arrays
+                List<String> sublists = splitTopLevelArrays(content);
+                StringBuilder sb = new StringBuilder();
+                sb.append("List<List<").append(elemType).append(">>").append(" ").append(argName)
+                        .append(" = new ArrayList<>();\n");
+                for (int i = 0; i < sublists.size(); i++) {
+                    String subInner = sublists.get(i).trim();
+                    if (subInner.startsWith("["))
+                        subInner = subInner.substring(1, subInner.length() - 1);
+                    sb.append("        ").append(argName).append(".add(new ArrayList<>(Arrays.asList(");
+                    sb.append(wrapElements(subInner, elemType));
+                    sb.append(")));");
+                    if (i < sublists.size() - 1)
+                        sb.append("\n");
+                }
+                return sb.toString();
+            }
             return "List<" + genericType + "> " + argName + " = new ArrayList<>(Arrays.asList("
                     + wrapElements(inner, genericType) + "));";
         }
 
+        // String[]
+        if (t.equals("String[]")) {
+            String[] elements = splitCsvRespectingQuotes(inner);
+            StringBuilder sb = new StringBuilder("String[] " + argName + " = {");
+            for (int i = 0; i < elements.length; i++) {
+                if (i > 0)
+                    sb.append(", ");
+                String el = elements[i].trim();
+                sb.append(el.startsWith("\"") ? el : "\"" + el + "\"");
+            }
+            sb.append("};");
+            return sb.toString();
+        }
+
         // int[]
         if (t.equals("int[]")) {
-            // Handle 2D input [[1,2],[3,4]]
             if (valueOnly.startsWith("[[")) {
                 String i2 = valueOnly.substring(1, valueOnly.length() - 1)
                         .replaceAll("\\[", "{").replaceAll("\\]", "}");
@@ -550,7 +585,35 @@ public class CodeExecutionService {
             return "int[][] " + argName + " = {" + i2 + "};";
         }
 
-        // String (unquoted in test input)
+        // long[]
+        if (t.equals("long[]")) {
+            return "long[] " + argName + " = {" + inner + "};";
+        }
+
+        // double[]
+        if (t.equals("double[]")) {
+            return "double[] " + argName + " = {" + inner + "};";
+        }
+
+        // char[]
+        if (t.equals("char[]")) {
+            // Input may be ["a","b"] or without quotes
+            String[] elements = splitCsvRespectingQuotes(inner);
+            StringBuilder sb = new StringBuilder("char[] " + argName + " = {");
+            for (int i = 0; i < elements.length; i++) {
+                if (i > 0)
+                    sb.append(", ");
+                String el = elements[i].trim()
+                        .replace("\"", "'");
+                if (!el.startsWith("'"))
+                    el = "'" + el + "'";
+                sb.append(el);
+            }
+            sb.append("};");
+            return sb.toString();
+        }
+
+        // String (singular)
         if (t.equals("String")) {
             String v = valueOnly.startsWith("\"") ? valueOnly : "\"" + valueOnly + "\"";
             return "String " + argName + " = " + v + ";";
@@ -664,6 +727,19 @@ public class CodeExecutionService {
             arrayContent = token.substring(1, token.length() - 1);
         }
         if (arrayContent != null) {
+            // Detect whether elements are strings (quoted or non-numeric)
+            if (looksLikeStringArray(arrayContent)) {
+                String[] elements = splitCsvRespectingQuotes(arrayContent);
+                StringBuilder sb = new StringBuilder("String[] " + varName + " = {");
+                for (int i = 0; i < elements.length; i++) {
+                    if (i > 0)
+                        sb.append(", ");
+                    String el = elements[i].trim();
+                    sb.append(el.startsWith("\"") ? el : "\"" + el + "\"");
+                }
+                sb.append("};");
+                return sb.toString();
+            }
             return "int[] " + varName + " = {" + arrayContent + "};";
         }
 
@@ -689,5 +765,83 @@ public class CodeExecutionService {
 
         // Fallback: treat as String literal
         return "String " + varName + " = \"" + token + "\";";
+    }
+
+    /**
+     * Returns true if the comma-separated array content looks like strings
+     * (any element is quoted OR no element is purely numeric).
+     */
+    private boolean looksLikeStringArray(String csv) {
+        if (csv == null || csv.trim().isEmpty())
+            return false;
+        // If content contains a double-quote, it's clearly strings
+        if (csv.contains("\""))
+            return true;
+        // Split by commas at depth-0 and check each element
+        String[] elements = splitCsvRespectingQuotes(csv);
+        for (String el : elements) {
+            String t = el.trim();
+            // If any element is non-numeric (and not a boolean), treat as string array
+            if (!t.matches("-?\\d+(\\.\\d+)?|true|false")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Split a CSV string by commas, respecting double-quoted strings.
+     * e.g. '"alice and bob", "foo"' -> ["alice and bob", "foo"]
+     */
+    private String[] splitCsvRespectingQuotes(String csv) {
+        List<String> result = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuote = false;
+        for (int i = 0; i < csv.length(); i++) {
+            char ch = csv.charAt(i);
+            if (ch == '"') {
+                inQuote = !inQuote;
+                current.append(ch);
+            } else if (ch == ',' && !inQuote) {
+                result.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(ch);
+            }
+        }
+        if (current.length() > 0)
+            result.add(current.toString());
+        return result.toArray(new String[0]);
+    }
+
+    /**
+     * Split top-level arrays from a string like "[1,2],[3,4]" into
+     * ["[1,2]","[3,4]"].
+     */
+    private List<String> splitTopLevelArrays(String s) {
+        List<String> result = new ArrayList<>();
+        int depth = 0;
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch == '[') {
+                depth++;
+                current.append(ch);
+            } else if (ch == ']') {
+                depth--;
+                current.append(ch);
+                if (depth == 0) {
+                    result.add(current.toString());
+                    current.setLength(0);
+                }
+            } else if (ch == ',' && depth == 0) {
+                // separator between top-level arrays — skip
+            } else {
+                current.append(ch);
+            }
+        }
+        if (current.length() > 0)
+            result.add(current.toString());
+        return result;
     }
 }

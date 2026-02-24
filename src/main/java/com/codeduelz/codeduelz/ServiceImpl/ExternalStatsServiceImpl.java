@@ -14,9 +14,12 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
     @Override
     public ExternalStatsDto getUserStats(String lc, String cf, String cc) {
         ExternalStatsDto stats = new ExternalStatsDto();
-        if (lc != null && !lc.isBlank()) stats.setLeetCode(getLeetCode(lc));
-        if (cf != null && !cf.isBlank()) stats.setCodeforces(getCodeforces(cf));
-        if (cc != null && !cc.isBlank()) stats.setCodeChef(getCodeChef(cc));
+        if (lc != null && !lc.isBlank())
+            stats.setLeetCode(getLeetCode(lc));
+        if (cf != null && !cf.isBlank())
+            stats.setCodeforces(getCodeforces(cf));
+        if (cc != null && !cc.isBlank())
+            stats.setCodeChef(getCodeChef(cc));
         return stats;
     }
 
@@ -25,45 +28,114 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
         try {
             HttpHeaders h = new HttpHeaders();
             h.setContentType(MediaType.APPLICATION_JSON);
-            String q = "{\"query\":\"{matchedUser(username:\\\"" + user + "\\\"){submitStats:submitStatsGlobal{acSubmissionNum{difficulty count}}}}\"}";
-            Map<String, Object> res = rest.postForObject("https://leetcode.com/graphql", new HttpEntity<>(q, h), Map.class);
+            String q = "{\"query\":\"{" +
+                    "matchedUser(username:\\\"" + user + "\\\"){" +
+                    "  profile { ranking }" +
+                    "  submitStats:submitStatsGlobal{acSubmissionNum{difficulty count}}" +
+                    "  userContestRanking{rating attendedContestsCount globalRanking}" +
+                    "}" +
+                    "problemsetQuestionCountV2{count difficulty}" +
+                    "}\"}";
+            Map<String, Object> res = rest.postForObject("https://leetcode.com/graphql", new HttpEntity<>(q, h),
+                    Map.class);
             Map<String, Object> data = (Map<String, Object>) res.get("data");
-            if (data.get("matchedUser") == null) return null;
-            List<Map<String, Object>> subs = (List<Map<String, Object>>) ((Map<String, Object>) ((Map<String, Object>) data.get("matchedUser")).get("submitStats")).get("acSubmissionNum");
+            if (data.get("matchedUser") == null)
+                return null;
+
+            Map<String, Object> mu = (Map<String, Object>) data.get("matchedUser");
+            List<Map<String, Object>> subs = (List<Map<String, Object>>) ((Map<String, Object>) mu.get("submitStats"))
+                    .get("acSubmissionNum");
+
             ExternalStatsDto.LeetCodeStats lc = new ExternalStatsDto.LeetCodeStats();
             for (Map<String, Object> s : subs) {
                 int c = (Integer) s.get("count");
                 String d = (String) s.get("difficulty");
-                if ("All".equals(d)) lc.setTotalSolved(c);
-                else if ("Easy".equals(d)) lc.setEasySolved(c);
-                else if ("Medium".equals(d)) lc.setMediumSolved(c);
-                else if ("Hard".equals(d)) lc.setHardSolved(c);
+                if ("All".equals(d))
+                    lc.setTotalSolved(c);
+                else if ("Easy".equals(d))
+                    lc.setEasySolved(c);
+                else if ("Medium".equals(d))
+                    lc.setMediumSolved(c);
+                else if ("Hard".equals(d))
+                    lc.setHardSolved(c);
             }
+
+            // Global ranking from profile
+            try {
+                Map<String, Object> profile = (Map<String, Object>) mu.get("profile");
+                if (profile != null && profile.get("ranking") != null)
+                    lc.setRanking(((Number) profile.get("ranking")).intValue());
+            } catch (Exception ignored) {
+            }
+
+            // Contest rating
+            try {
+                Map<String, Object> cr = (Map<String, Object>) mu.get("userContestRanking");
+                if (cr != null && cr.get("rating") != null) {
+                    lc.setContestRating((int) Math.round(((Number) cr.get("rating")).doubleValue()));
+                    lc.setContestsAttended(cr.get("attendedContestsCount") != null
+                            ? ((Number) cr.get("attendedContestsCount")).intValue()
+                            : 0);
+                }
+            } catch (Exception ignored) {
+            }
+
+            // Total problems per difficulty
+            try {
+                List<Map<String, Object>> pqs = (List<Map<String, Object>>) data.get("problemsetQuestionCountV2");
+                if (pqs != null)
+                    for (Map<String, Object> pq : pqs) {
+                        String diff = (String) pq.get("difficulty");
+                        int count = ((Number) pq.get("count")).intValue();
+                        if ("Easy".equals(diff))
+                            lc.setTotalEasy(count);
+                        else if ("Medium".equals(diff))
+                            lc.setTotalMedium(count);
+                        else if ("Hard".equals(diff))
+                            lc.setTotalHard(count);
+                    }
+            } catch (Exception ignored) {
+            }
+
             return lc;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @SuppressWarnings("unchecked")
     private ExternalStatsDto.CodeforcesStats getCodeforces(String user) {
         try {
-            Map<String, Object> res = rest.getForObject("https://codeforces.com/api/user.info?handles=" + user, Map.class);
-            if (!"OK".equals(res.get("status"))) return null;
+            Map<String, Object> res = rest.getForObject("https://codeforces.com/api/user.info?handles=" + user,
+                    Map.class);
+            if (!"OK".equals(res.get("status")))
+                return null;
             Map<String, Object> u = ((List<Map<String, Object>>) res.get("result")).get(0);
             ExternalStatsDto.CodeforcesStats cf = new ExternalStatsDto.CodeforcesStats();
             cf.setRating((Integer) u.get("rating"));
             cf.setMaxRating((Integer) u.get("maxRating"));
             cf.setRank((String) u.get("rank"));
             return cf;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private ExternalStatsDto.CodeChefStats getCodeChef(String user) {
         try {
             org.jsoup.nodes.Document doc = org.jsoup.Jsoup.connect("https://www.codechef.com/users/" + user).get();
             ExternalStatsDto.CodeChefStats cc = new ExternalStatsDto.CodeChefStats();
-            try { cc.setCurrentRating(Integer.parseInt(doc.select(".rating-number").text())); } catch (Exception e) {}
-            try { cc.setStars(doc.select(".rating-star span").text()); } catch (Exception e) {}
+            try {
+                cc.setCurrentRating(Integer.parseInt(doc.select(".rating-number").text()));
+            } catch (Exception e) {
+            }
+            try {
+                cc.setStars(doc.select(".rating-star span").text());
+            } catch (Exception e) {
+            }
             return cc;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

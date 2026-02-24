@@ -44,4 +44,26 @@ public class PresenceController {
             userRepo.save(user);
         });
     }
+
+    /**
+     * Explicit offline signal — sent by frontend before logout/tab close.
+     * This is more reliable than waiting for the TCP disconnect to propagate.
+     */
+    @MessageMapping("/user/offline")
+    @Transactional
+    public void userOffline(@Payload Map<String, String> payload,
+            @Header("simpSessionId") String sessionId) {
+        String username = payload.get("username");
+        if (username == null || username.isBlank())
+            return;
+
+        log.info("User {} sent explicit offline signal (session {})", username, sessionId);
+
+        WebSocketPresenceEventListener.sessionUserMap.remove(sessionId);
+        userRepo.findByUserName(username).ifPresent(user -> {
+            user.setIsOnline(false);
+            user.setLastSeen(LocalDateTime.now());
+            userRepo.save(user);
+        });
+    }
 }
