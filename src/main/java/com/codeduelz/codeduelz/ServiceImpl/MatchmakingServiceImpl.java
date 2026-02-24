@@ -146,7 +146,9 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         // Run asynchronously so we don't block the WebSocket thread
         CompletableFuture.runAsync(() -> {
-            CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases);
+            String methodName = match.getProblem().getMethodName();
+            CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases,
+                    methodName);
             sendRunResult(username, result);
         });
     }
@@ -194,7 +196,9 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         // Run code against test cases asynchronously
         CompletableFuture.runAsync(() -> {
-            CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases);
+            String methodName = match.getProblem().getMethodName();
+            CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases,
+                    methodName);
 
             // Update submission with results
             submission.setTestCasesPassed(result.getTotalPassed());

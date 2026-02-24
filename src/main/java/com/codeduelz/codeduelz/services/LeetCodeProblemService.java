@@ -73,8 +73,8 @@ public class LeetCodeProblemService {
         List<JsonNode> problems = problemsByDifficulty.get(difficulty);
         if (problems.isEmpty()) {
             problems = problemsByDifficulty.values().stream()
-                .flatMap(List::stream)
-                .toList();
+                    .flatMap(List::stream)
+                    .toList();
         }
         if (problems.isEmpty()) {
             throw new RuntimeException("No LeetCode problems available");
@@ -97,6 +97,16 @@ public class LeetCodeProblemService {
             problem.setDifficulty(mapDifficulty(root.has("difficulty") ? root.get("difficulty").asText() : "Medium"));
             problem.setSource("LEETCODE");
             problem.setDescription(root.has("description") ? root.get("description").asText() : "");
+
+            // Extract method name from Java code snippet
+            String methodName = extractMethodName(root);
+            problem.setMethodName(methodName);
+
+            problem = problemRepo.save(problem);
+        } else if (problem.getMethodName() == null || problem.getMethodName().isEmpty()) {
+            // Update existing problems that don't have methodName set
+            String methodName = extractMethodName(root);
+            problem.setMethodName(methodName);
             problem = problemRepo.save(problem);
         }
 
@@ -120,9 +130,8 @@ public class LeetCodeProblemService {
 
         Map<String, String> codeSnippets = new HashMap<>();
         if (root.has("code_snippets") && root.get("code_snippets").isObject()) {
-            root.get("code_snippets").fields().forEachRemaining(entry ->
-                codeSnippets.put(entry.getKey(), entry.getValue().asText())
-            );
+            root.get("code_snippets").fields()
+                    .forEachRemaining(entry -> codeSnippets.put(entry.getKey(), entry.getValue().asText()));
         }
 
         // Extract and save test cases from examples if not already saved
@@ -154,7 +163,8 @@ public class LeetCodeProblemService {
 
         for (JsonNode ex : root.get("examples")) {
             String text = ex.has("example_text") ? ex.get("example_text").asText() : "";
-            if (text.isEmpty()) continue;
+            if (text.isEmpty())
+                continue;
 
             // Parse "Input: ..." and "Output: ..." from the example text
             String input = extractSection(text, "Input");
@@ -176,8 +186,8 @@ public class LeetCodeProblemService {
     /**
      * Extract a section (Input or Output) from LeetCode example text.
      * Handles formats like:
-     *   "Input: nums = [2,7,11,15], target = 9"
-     *   "Output: [0,1]"
+     * "Input: nums = [2,7,11,15], target = 9"
+     * "Output: [0,1]"
      * Returns the value after "Section: ", trimmed.
      */
     private String extractSection(String text, String section) {
@@ -192,11 +202,42 @@ public class LeetCodeProblemService {
     }
 
     private Difficulty mapDifficulty(String diffStr) {
-        if (diffStr == null) return Difficulty.MEDIUM;
+        if (diffStr == null)
+            return Difficulty.MEDIUM;
         return switch (diffStr.toLowerCase()) {
             case "easy" -> Difficulty.EASY;
             case "hard" -> Difficulty.HARD;
             default -> Difficulty.MEDIUM;
         };
+    }
+
+    /**
+     * Extract method name from Java code snippet.
+     * Example: "class Solution {\n public int[] twoSum(int[] nums, int target)
+     * {\n..."
+     * Returns: "twoSum"
+     */
+    private String extractMethodName(JsonNode root) {
+        if (!root.has("code_snippets")) {
+            return null;
+        }
+
+        JsonNode codeSnippets = root.get("code_snippets");
+        if (!codeSnippets.has("java")) {
+            return null;
+        }
+
+        String javaCode = codeSnippets.get("java").asText();
+
+        // Pattern to match: public <returnType> methodName(
+        // This captures the method name from the Java code snippet
+        Pattern pattern = Pattern.compile("public\\s+\\w+(?:<[^>]+>)?(?:\\[\\])?\\s+(\\w+)\\s*\\(");
+        Matcher matcher = pattern.matcher(javaCode);
+
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+
+        return null;
     }
 }

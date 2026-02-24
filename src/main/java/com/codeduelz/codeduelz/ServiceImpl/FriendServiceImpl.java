@@ -52,6 +52,11 @@ public class FriendServiceImpl implements FriendService {
         Friend friendRequest = friendRepo.findByIdAndFriendUser(requestId, user)
                 .orElseThrow(() -> new IllegalArgumentException("Friend request not found"));
 
+        // Verify this user is the recipient
+        if (!friendRequest.getFriendUser().getUserId().equals(user.getUserId())) {
+            throw new IllegalArgumentException("You are not authorized to accept this request");
+        }
+
         if (!"PENDING".equals(friendRequest.getStatus())) {
             throw new IllegalStateException("Friend request is not pending");
         }
@@ -79,6 +84,11 @@ public class FriendServiceImpl implements FriendService {
         // requestId points to the record where friendUser=currentUser (from getPendingRequests)
         Friend friendRequest = friendRepo.findByIdAndFriendUser(requestId, user)
                 .orElseThrow(() -> new IllegalArgumentException("Friend request not found"));
+
+        // Verify this user is the recipient
+        if (!friendRequest.getFriendUser().getUserId().equals(user.getUserId())) {
+            throw new IllegalArgumentException("You are not authorized to reject this request");
+        }
 
         if (!"PENDING".equals(friendRequest.getStatus())) {
             throw new IllegalStateException("Friend request is not pending");
@@ -136,8 +146,7 @@ public class FriendServiceImpl implements FriendService {
                         user.getUserId(),
                         user.getUsername(),
                         request.getStatus(),
-                        null // createdAt not available in current Friend entity
-                ))
+                        request.getCreatedAt()))
                 .collect(Collectors.toList());
     }
 

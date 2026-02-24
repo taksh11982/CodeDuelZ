@@ -21,7 +21,10 @@ public class Problem {
     private Difficulty difficulty;
 
     // LeetCode specific fields
-    private String leetcodeId;    // e.g. "1"
-    private String problemSlug;   // e.g. "two-sum"
-    private String source;        // "LEETCODE"
+    private String leetcodeId; // e.g. "1"
+    private String problemSlug; // e.g. "two-sum"
+    private String source; // "LEETCODE"
+
+    // Method name for auto-wrapping (e.g. "twoSum", "convertToTitle")
+    private String methodName;
 }

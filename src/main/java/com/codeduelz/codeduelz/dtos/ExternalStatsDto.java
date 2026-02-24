@@ -15,6 +15,11 @@ public class ExternalStatsDto {
         private int mediumSolved;
         private int hardSolved;
         private int ranking;
+        private int contestRating;
+        private int contestsAttended;
+        private int totalEasy;
+        private int totalMedium;
+        private int totalHard;
     }
 
     @Data
