@@ -32,9 +32,9 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
                     "matchedUser(username:\\\"" + user + "\\\"){" +
                     "  profile { ranking }" +
                     "  submitStats:submitStatsGlobal{acSubmissionNum{difficulty count}}" +
-                    "  userContestRanking{rating attendedContestsCount globalRanking}" +
                     "}" +
-                    "problemsetQuestionCountV2{count difficulty}" +
+                    "userContestRanking(username:\\\"" + user + "\\\"){rating attendedContestsCount globalRanking}" +
+                    "allQuestionsCount{difficulty count}" +
                     "}\"}";
             Map<String, Object> res = rest.postForObject("https://leetcode.com/graphql", new HttpEntity<>(q, h),
                     Map.class);
@@ -70,7 +70,7 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
 
             // Contest rating
             try {
-                Map<String, Object> cr = (Map<String, Object>) mu.get("userContestRanking");
+                Map<String, Object> cr = (Map<String, Object>) data.get("userContestRanking");
                 if (cr != null && cr.get("rating") != null) {
                     lc.setContestRating((int) Math.round(((Number) cr.get("rating")).doubleValue()));
                     lc.setContestsAttended(cr.get("attendedContestsCount") != null
@@ -82,7 +82,7 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
 
             // Total problems per difficulty
             try {
-                List<Map<String, Object>> pqs = (List<Map<String, Object>>) data.get("problemsetQuestionCountV2");
+                List<Map<String, Object>> pqs = (List<Map<String, Object>>) data.get("allQuestionsCount");
                 if (pqs != null)
                     for (Map<String, Object> pq : pqs) {
                         String diff = (String) pq.get("difficulty");

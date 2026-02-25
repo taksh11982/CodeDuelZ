@@ -27,7 +27,9 @@ public class ProfileServiceImpl implements ProfileService {
         Profile profile = new Profile();
         profile.setUser(user);
         profile.setWins(0);
+        profile.setLosses(0);
         profile.setTotalMatches(0);
+        profile.setRating(1000);
         profile.setAvatar("/avatars/default.png");
         profileRepo.save(profile);
         return profile;

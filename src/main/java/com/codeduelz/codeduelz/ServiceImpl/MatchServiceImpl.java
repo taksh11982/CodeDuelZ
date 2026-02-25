@@ -81,12 +81,13 @@ public class MatchServiceImpl implements MatchService {
             dto.setStatus(match.getStatus().name());
 
             if (match.getStatus() == MatchStatus.COMPLETED) {
-                dto.setResult(
-                        match.getEndTime() != null &&
-                                match.getPlayer1().getUserId().equals(user.getUserId())
-                                ? "WIN"
-                                : "LOSS"
-                );
+                if (match.getWinnerId() != null) {
+                    dto.setResult(
+                            match.getEndTime() != null && match.getWinnerId().equals(user.getUserId()) ? "WIN" : "LOSS"
+                    );
+                } else {
+                    dto.setResult("DRAW");
+                }
             }
             dto.setStartTime(match.getStartTime());
             dto.setEndTime(match.getEndTime());

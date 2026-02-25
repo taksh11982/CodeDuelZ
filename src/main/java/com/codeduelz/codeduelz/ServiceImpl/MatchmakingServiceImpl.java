@@ -294,4 +294,31 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             profileRepo.save(p2Profile);
         }
     }
+
+    @Override
+    public void handleTimeout(Long matchId) {
+        Match match = matchRepo.findById(matchId).orElse(null);
+        if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
+
+        match.setStatus(MatchStatus.COMPLETED);
+        match.setEndTime(LocalDateTime.now());
+        match.setWinnerId(null);
+        match.setPlayer1RatingChange(-10);
+        match.setPlayer2RatingChange(-10);
+        matchRepo.save(match);
+
+        for (User player : List.of(match.getPlayer1(), match.getPlayer2())) {
+            profileRepo.findByUser(player).ifPresent(p -> {
+                p.setTotalMatches(p.getTotalMatches() + 1);
+                p.setLosses(p.getLosses() + 1);
+                p.setRating(p.getRating() - 10);
+                profileRepo.save(p);
+            });
+        }
+
+        messaging.convertAndSend("/topic/match/" + matchId,
+                Map.of("matchId", matchId, "winnerId", "TIMEOUT", "winnerName", "TIMEOUT"));
+        userToMatch.remove(match.getPlayer1().getUsername());
+        userToMatch.remove(match.getPlayer2().getUsername());
+    }
 }

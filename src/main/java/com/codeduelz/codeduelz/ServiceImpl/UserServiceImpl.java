@@ -9,7 +9,7 @@ import com.codeduelz.codeduelz.services.UserService;
 import com.google.firebase.auth.FirebaseToken;
 import lombok.AllArgsConstructor;
 import org.modelmapper.ModelMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -19,11 +19,8 @@ import java.time.LocalDateTime;
 @Service
 @AllArgsConstructor
 public class UserServiceImpl implements UserService {
-    @Autowired
     private final UserRepo userRepo;
-    @Autowired
     private final PasswordEncoder passwordEncoder;
-    @Autowired
     private final ModelMapper modelMapper;
     @Override
     public User register(User user) {

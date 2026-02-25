@@ -96,7 +96,7 @@ public class LeetCodeProblemService {
             problem.setProblemSlug(root.has("problem_slug") ? root.get("problem_slug").asText() : "");
             problem.setDifficulty(mapDifficulty(root.has("difficulty") ? root.get("difficulty").asText() : "Medium"));
             problem.setSource("LEETCODE");
-            problem.setDescription(root.has("description") ? root.get("description").asText() : "");
+            problem.setDescription(cleanDescription(root.has("description") ? root.get("description").asText() : ""));
 
             // Extract method name from Java code snippet
             String methodName = extractMethodName(root);
@@ -199,6 +199,10 @@ public class LeetCodeProblemService {
             return matcher.group(1).trim();
         }
         return "";
+    }
+    private String cleanDescription(String desc) {
+        if (desc == null) return "";
+        return desc.replaceAll("(?s)\\n\\s*Example\\s+\\d+:.*$", "").trim();
     }
 
     private Difficulty mapDifficulty(String diffStr) {

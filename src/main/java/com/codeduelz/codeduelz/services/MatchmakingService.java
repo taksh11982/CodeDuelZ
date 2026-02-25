@@ -8,4 +8,5 @@ public interface MatchmakingService {
     void runCode(String username, Long matchId, String code, String language);
 
     void submitCode(String username, Long matchId, String code, String language);
+    void handleTimeout(Long matchId);
 }

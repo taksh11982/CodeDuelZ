@@ -39,16 +39,19 @@ public class FirebaseAuthenticationFilter
         String header = request.getHeader("Authorization");
 
         if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
-            FirebaseToken decoded = firebaseAuthService.verifyToken(token);
+            try {
+                String token = header.substring(7);
+                FirebaseToken decoded = firebaseAuthService.verifyToken(token);
 
-            User user = userService.findOrCreateFirebaseUser(decoded);
+                User user = userService.findOrCreateFirebaseUser(decoded);
 
-            UsernamePasswordAuthenticationToken auth =
-                    new UsernamePasswordAuthenticationToken(
-                            user, null, user.getAuthorities());
+                UsernamePasswordAuthenticationToken auth =
+                        new UsernamePasswordAuthenticationToken(
+                                user, null, user.getAuthorities());
 
-            SecurityContextHolder.getContext().setAuthentication(auth);
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            } catch (Exception e) {
+            }
         }
 
         filterChain.doFilter(request, response);

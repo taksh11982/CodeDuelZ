@@ -41,4 +41,10 @@ public class MatchmakingController {
         String language = (String) payload.get("language");
         matchmakingService.submitCode(username, matchId, code, language);
     }
+
+    @MessageMapping("/match/timeout")
+    public void matchTimeout(@Payload Map<String, Object> payload) {
+        Long matchId = Long.parseLong(payload.get("matchId").toString());
+        matchmakingService.handleTimeout(matchId);
+    }
 }

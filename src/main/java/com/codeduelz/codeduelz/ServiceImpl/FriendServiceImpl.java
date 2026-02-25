@@ -26,7 +26,8 @@ public class FriendServiceImpl implements FriendService {
             throw new IllegalArgumentException("Cannot send friend request to yourself");
         }
         boolean exists = friendRepo.existsByUserAndFriendUser(from, to);
-        if (exists) {
+        boolean reverseExists = friendRepo.existsByUserAndFriendUser(to, from);
+        if (exists || reverseExists) {
             throw new IllegalStateException("Friend request already exists");
         }
 
