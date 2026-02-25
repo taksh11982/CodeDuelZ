@@ -3,9 +3,11 @@ package com.codeduelz.codeduelz.ServiceImpl;
 import com.codeduelz.codeduelz.dtos.FriendDto;
 import com.codeduelz.codeduelz.dtos.FriendRequestDto;
 import com.codeduelz.codeduelz.entities.Friend;
+import com.codeduelz.codeduelz.entities.NotificationType;
 import com.codeduelz.codeduelz.entities.User;
 import com.codeduelz.codeduelz.repo.FriendRepo;
 import com.codeduelz.codeduelz.services.FriendService;
+import com.codeduelz.codeduelz.services.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class FriendServiceImpl implements FriendService {
     private final FriendRepo friendRepo;
+    private final NotificationService notificationService;
 
     @Override
     public void sendRequest(User from, User to) {
@@ -45,6 +48,9 @@ public class FriendServiceImpl implements FriendService {
 
         friendRepo.save(request);
         friendRepo.save(reverse);
+
+        notificationService.create(to, NotificationType.FRIEND_REQUEST,
+                from.getUsername() + " sent you a friend request", from.getUsername(), request.getId());
     }
 
     @Override
@@ -68,6 +74,9 @@ public class FriendServiceImpl implements FriendService {
         // Update this side (sender -> currentUser) to ACCEPTED
         friendRequest.setStatus("ACCEPTED");
         friendRepo.save(friendRequest);
+
+        notificationService.create(friendRequest.getUser(), NotificationType.FRIEND_ACCEPTED,
+                user.getUsername() + " accepted your friend request", user.getUsername(), friendRequest.getId());
 
         // Find and update the reverse relationship (currentUser -> sender)
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(

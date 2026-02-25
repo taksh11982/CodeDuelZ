@@ -6,6 +6,7 @@ import com.codeduelz.codeduelz.repo.*;
 import com.codeduelz.codeduelz.services.CodeExecutionService;
 import com.codeduelz.codeduelz.services.LeetCodeProblemService;
 import com.codeduelz.codeduelz.services.MatchmakingService;
+import com.codeduelz.codeduelz.services.NotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     private final CodeExecutionService codeExecutionService;
     private final TestCaseRepo testCaseRepo;
     private final SubmissionRepo submissionRepo;
+    private final NotificationService notificationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Queue per difficulty: difficulty -> list of waiting usernames
@@ -253,6 +255,13 @@ public class MatchmakingServiceImpl implements MatchmakingService {
                 "winnerName", winnerName);
         messaging.convertAndSend("/topic/match/" + match.getMatchId(), result);
 
+        // Persist match result notifications
+        User loser = isPlayer1 ? match.getPlayer2() : match.getPlayer1();
+        notificationService.create(winner, NotificationType.MATCH_RESULT,
+                "You won against " + loser.getUsername() + "! +25 ELO", loser.getUsername(), match.getMatchId());
+        notificationService.create(loser, NotificationType.MATCH_RESULT,
+                "You lost to " + winner.getUsername() + ". -15 ELO", winner.getUsername(), match.getMatchId());
+
         userToMatch.remove(match.getPlayer1().getUsername());
         userToMatch.remove(match.getPlayer2().getUsername());
     }
@@ -318,6 +327,12 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         messaging.convertAndSend("/topic/match/" + matchId,
                 Map.of("matchId", matchId, "winnerId", "TIMEOUT", "winnerName", "TIMEOUT"));
+
+        notificationService.create(match.getPlayer1(), NotificationType.MATCH_RESULT,
+                "Match timed out. -10 ELO", match.getPlayer2().getUsername(), matchId);
+        notificationService.create(match.getPlayer2(), NotificationType.MATCH_RESULT,
+                "Match timed out. -10 ELO", match.getPlayer1().getUsername(), matchId);
+
         userToMatch.remove(match.getPlayer1().getUsername());
         userToMatch.remove(match.getPlayer2().getUsername());
     }

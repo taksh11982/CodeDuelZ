@@ -3,6 +3,7 @@ package com.codeduelz.codeduelz.controller;
 import com.codeduelz.codeduelz.entities.*;
 import com.codeduelz.codeduelz.repo.*;
 import com.codeduelz.codeduelz.services.LeetCodeProblemService;
+import com.codeduelz.codeduelz.services.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -31,6 +32,7 @@ public class ChallengeController {
     private final MatchRepo matchRepo;
     private final TestCaseRepo testCaseRepo;
     private final LeetCodeProblemService leetCodeProblemService;
+    private final NotificationService notificationService;
 
     // ── Send challenge invite ────────────────────────────────────────────────
 
@@ -50,6 +52,17 @@ public class ChallengeController {
 
         // Deliver to the challenged user's personal challenge channel
         messaging.convertAndSend("/topic/user/" + toUsername + "/challenge", invite);
+
+        // Persist notification (non-critical, must not block challenge delivery)
+        try {
+            User toUser = userRepo.findByUserName(toUsername).orElse(null);
+            if (toUser != null) {
+                notificationService.create(toUser, NotificationType.CHALLENGE_RECEIVED,
+                        fromUsername + " challenged you to a duel!", fromUsername, null);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to create challenge notification: {}", e.getMessage());
+        }
     }
 
     // ── Respond to challenge ─────────────────────────────────────────────────
@@ -74,6 +87,13 @@ public class ChallengeController {
 
             // Notify the original challenger
             messaging.convertAndSend("/topic/user/" + fromUsername + "/challenge", declined);
+
+            // Persist notification
+            User challengerUser = userRepo.findByUserName(fromUsername).orElse(null);
+            if (challengerUser != null) {
+                notificationService.create(challengerUser, NotificationType.CHALLENGE_DECLINED,
+                        toUsername + " declined your challenge", toUsername, null);
+            }
             return;
         }
 
