@@ -10,6 +10,9 @@ import com.codeduelz.codeduelz.repo.ProfileRepo;
 import com.codeduelz.codeduelz.repo.UserRepo;
 import com.codeduelz.codeduelz.services.ProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -57,6 +60,10 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "leaderboard", allEntries = true),
+            @CacheEvict(value = "publicProfile", allEntries = true)
+    })
     public ProfileDto updateProfile(User user, UpdateProfileDto dto) {
         Profile profile = profileRepo.findByUser(user)
                 .orElseGet(() -> createProfile(user));
@@ -84,6 +91,7 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     @Override
+    @Cacheable(value = "publicProfile", key = "#userId")
     public PublicProfileDto getPublicProfile(Long userId) {
 
         Profile profile = profileRepo.findByUser_UserId(userId)
@@ -108,6 +116,7 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     @Override
+    @Cacheable("leaderboard")
     public List<LeaderboardDto> getLeaderboard() {
         List<Profile> profiles = profileRepo.findTop10ByOrderByRatingDesc();
         List<LeaderboardDto> leaderboard = new ArrayList<>();

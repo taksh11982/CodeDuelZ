@@ -12,6 +12,8 @@ import com.codeduelz.codeduelz.repo.UserRepo;
 import com.codeduelz.codeduelz.services.MatchService;
 import com.codeduelz.codeduelz.services.ProblemService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -48,6 +50,10 @@ public class MatchServiceImpl implements MatchService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "leaderboard", allEntries = true),
+            @CacheEvict(value = "publicProfile", allEntries = true)
+    })
     public void completeMatch(Long matchId, MatchResultDto dto) {
         Match match = matchRepo.findById(matchId)
                 .orElseThrow(() -> new RuntimeException("Match not found"));

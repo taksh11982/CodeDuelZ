@@ -2,6 +2,7 @@ package com.codeduelz.codeduelz.ServiceImpl;
 
 import com.codeduelz.codeduelz.dtos.ExternalStatsDto;
 import com.codeduelz.codeduelz.services.ExternalStatsService;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -12,6 +13,7 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
     private final RestTemplate rest = new RestTemplate();
 
     @Override
+    @Cacheable(value = "externalStats", key = "T(String).valueOf(#lc) + ':' + T(String).valueOf(#cf) + ':' + T(String).valueOf(#cc)")
     public ExternalStatsDto getUserStats(String lc, String cf, String cc) {
         ExternalStatsDto stats = new ExternalStatsDto();
         if (lc != null && !lc.isBlank())
