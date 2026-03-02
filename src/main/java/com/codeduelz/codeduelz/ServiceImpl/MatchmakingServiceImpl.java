@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,55 +78,69 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         if (player1 == null || player2 == null)
             return;
 
-        // Pick a random LeetCode problem from local JSON files
-        Difficulty diff = Difficulty.valueOf(difficulty);
-        Map<String, Object> problemData = leetCodeProblemService.getRandomProblemData(diff);
-        Problem problem = (Problem) problemData.get("problem");
+        try {
+            Difficulty diff;
+            try {
+                diff = Difficulty.valueOf(difficulty.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                log.warn("Invalid difficulty '{}', defaulting to MEDIUM", difficulty);
+                diff = Difficulty.MEDIUM;
+            }
 
-        Match match = new Match();
-        match.setPlayer1(player1);
-        match.setPlayer2(player2);
-        match.setProblem(problem);
-        match.setStatus(MatchStatus.ONGOING);
-        match.setStartTime(LocalDateTime.now());
-        match.setTimeLimitSeconds(900);
-        Match saved = matchRepo.save(match);
+            Map<String, Object> problemData = leetCodeProblemService.getRandomProblemData(diff);
+            Problem problem = (Problem) problemData.get("problem");
+            if (problem == null) {
+                throw new IllegalStateException("Problem data was loaded but problem entity is null");
+            }
 
-        userToMatch.put(username1, saved.getMatchId());
-        userToMatch.put(username2, saved.getMatchId());
+            Match match = new Match();
+            match.setPlayer1(player1);
+            match.setPlayer2(player2);
+            match.setProblem(problem);
+            match.setStatus(MatchStatus.ONGOING);
+            match.setStartTime(LocalDateTime.now());
+            match.setTimeLimitSeconds(900);
+            Match saved = matchRepo.save(match);
 
-        // Send structured problem data to both players
-        Map<String, Object> problemPayload = new HashMap<>();
-        problemPayload.put("title", problem.getTitle());
-        problemPayload.put("description", problem.getDescription());
-        problemPayload.put("difficulty", problem.getDifficulty() != null ? problem.getDifficulty().name() : "MEDIUM");
-        problemPayload.put("url", "https://leetcode.com/problems/" + problem.getProblemSlug() + "/");
-        problemPayload.put("examples", problemData.get("examples"));
-        problemPayload.put("constraints", problemData.get("constraints"));
-        problemPayload.put("codeSnippets", problemData.get("codeSnippets"));
+            userToMatch.put(username1, saved.getMatchId());
+            userToMatch.put(username2, saved.getMatchId());
 
-        // Include test cases in the match data for the Run button
-        List<TestCase> testCases = testCaseRepo.findByProblem(problem);
-        List<Map<String, String>> testCaseData = new ArrayList<>();
-        for (TestCase tc : testCases) {
-            Map<String, String> tcMap = new HashMap<>();
-            tcMap.put("input", tc.getInput());
-            tcMap.put("expectedOutput", tc.getExpectedOutput());
-            testCaseData.add(tcMap);
+            Map<String, Object> problemPayload = new HashMap<>();
+            problemPayload.put("title", problem.getTitle());
+            problemPayload.put("description", problem.getDescription());
+            problemPayload.put("difficulty", problem.getDifficulty() != null ? problem.getDifficulty().name() : "MEDIUM");
+            problemPayload.put("url", "https://leetcode.com/problems/" + problem.getProblemSlug() + "/");
+            problemPayload.put("examples", problemData.get("examples"));
+            problemPayload.put("constraints", problemData.get("constraints"));
+            problemPayload.put("codeSnippets", problemData.get("codeSnippets"));
+
+            List<TestCase> testCases = testCaseRepo.findByProblem(problem);
+            List<Map<String, String>> testCaseData = new ArrayList<>();
+            for (TestCase tc : testCases) {
+                Map<String, String> tcMap = new HashMap<>();
+                tcMap.put("input", tc.getInput());
+                tcMap.put("expectedOutput", tc.getExpectedOutput());
+                testCaseData.add(tcMap);
+            }
+            problemPayload.put("testCases", testCaseData);
+
+            Map<String, Object> matchData = new HashMap<>();
+            matchData.put("matchId", saved.getMatchId());
+            matchData.put("problem", problemPayload);
+            matchData.put("timeLimitSeconds", 900);
+            matchData.put("startTimeMs", System.currentTimeMillis());
+            matchData.put("player1", Map.of("name", username1));
+            matchData.put("player2", Map.of("name", username2));
+
+            log.info("SENDING MATCH: {}", matchData);
+            messaging.convertAndSend("/topic/user/" + username1, matchData);
+            messaging.convertAndSend("/topic/user/" + username2, matchData);
+        } catch (Exception ex) {
+            log.error("Failed to create match for users '{}' and '{}' on difficulty '{}': {}",
+                    username1, username2, difficulty, ex.getMessage(), ex);
+            queue.offer(username1);
+            queue.offer(username2);
         }
-        problemPayload.put("testCases", testCaseData);
-
-        Map<String, Object> matchData = new HashMap<>();
-        matchData.put("matchId", saved.getMatchId());
-        matchData.put("problem", problemPayload);
-        matchData.put("timeLimitSeconds", 900);
-        matchData.put("startTimeMs", System.currentTimeMillis());
-        matchData.put("player1", Map.of("name", username1));
-        matchData.put("player2", Map.of("name", username2));
-
-        log.info("SENDING MATCH: {}", matchData);
-        messaging.convertAndSend("/topic/user/" + username1, matchData);
-        messaging.convertAndSend("/topic/user/" + username2, matchData);
     }
 
     /**
