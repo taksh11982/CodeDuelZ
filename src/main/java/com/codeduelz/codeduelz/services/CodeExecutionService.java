@@ -385,10 +385,11 @@ public class CodeExecutionService {
     private String generateSmartWrapper(String solutionCode, String methodName, String testInput) {
         String className = "Solution";
 
-        // Split test input lines (one per parameter)
-        String[] inputLines = (testInput == null || testInput.trim().isEmpty())
+        // Normalize single-line multi-param input to multi-line, then split
+        String normalizedInput = splitMultiParamInput(testInput);
+        String[] inputLines = (normalizedInput == null || normalizedInput.trim().isEmpty())
                 ? new String[0]
-                : testInput.trim().split("\\r?\\n");
+                : normalizedInput.trim().split("\\r?\\n");
 
         // Extract actual parameter types from the solution method signature
         List<String> paramTypes = extractParamTypes(solutionCode, methodName);
@@ -670,8 +671,9 @@ public class CodeExecutionService {
             return new String[] { "int arg0 = 0;", "arg0" };
         }
 
-        // Split on newlines — each line is one parameter
-        String[] lines = testInput.trim().split("\\r?\\n");
+        // Normalize single-line multi-param input, then split on newlines
+        String normalized = splitMultiParamInput(testInput);
+        String[] lines = normalized.trim().split("\\r?\\n");
 
         // Single-line shortcut keeps behaviour identical to before
         if (lines.length == 1) {
@@ -812,6 +814,50 @@ public class CodeExecutionService {
         if (current.length() > 0)
             result.add(current.toString());
         return result.toArray(new String[0]);
+    }
+
+    /**
+     * Split a single-line multi-parameter input into separate lines.
+     * e.g. "nums = [2,2,0], changeIndices = [2,2,2,2,3,2,2,1]"
+     * becomes "nums = [2,2,0]\nchangeIndices = [2,2,2,2,3,2,2,1]"
+     *
+     * Only splits at commas that are at bracket depth 0 AND are followed
+     * by a "varname = " pattern. Leaves already-multiline input unchanged.
+     */
+    private String splitMultiParamInput(String input) {
+        if (input == null || input.isEmpty()) return input;
+        // If already multi-line, return as-is
+        if (input.contains("\n")) return input;
+
+        StringBuilder result = new StringBuilder();
+        int depth = 0;
+        boolean inQuote = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char ch = input.charAt(i);
+
+            if (ch == '"') {
+                inQuote = !inQuote;
+            } else if (!inQuote) {
+                if (ch == '[' || ch == '(') depth++;
+                else if (ch == ']' || ch == ')') depth--;
+                else if (ch == ',' && depth == 0) {
+                    // Look ahead: skip whitespace and check for "word = "
+                    String rest = input.substring(i + 1).stripLeading();
+                    if (rest.matches("(?s)\\w+\\s*=\\s*.*")) {
+                        // This comma separates two parameters — replace with newline
+                        result.append("\n");
+                        // Skip the comma and trailing spaces
+                        i++;
+                        while (i < input.length() && input.charAt(i) == ' ') i++;
+                        i--; // loop will increment
+                        continue;
+                    }
+                }
+            }
+            result.append(ch);
+        }
+        return result.toString();
     }
 
     /**
