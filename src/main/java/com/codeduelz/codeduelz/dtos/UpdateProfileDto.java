@@ -10,6 +10,7 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateProfileDto {
+    private String username;
     private String bio;
     private String avatar;
     private String leetcodeUsername;

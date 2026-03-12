@@ -68,6 +68,25 @@ public class ProfileServiceImpl implements ProfileService {
         Profile profile = profileRepo.findByUser(user)
                 .orElseGet(() -> createProfile(user));
 
+        // Handle username change
+        if (dto.getUsername() != null && !dto.getUsername().isBlank()) {
+            String newUsername = dto.getUsername().trim();
+            if (!newUsername.equals(user.getUsername())) {
+                // Check if username is already taken
+                if (userRepo.existsByUserName(newUsername)) {
+                    throw new IllegalArgumentException("Username already taken");
+                }
+                // Validate username format
+                if (newUsername.length() < 3 || newUsername.length() > 30) {
+                    throw new IllegalArgumentException("Username must be between 3 and 30 characters");
+                }
+                if (!newUsername.matches("^[a-zA-Z0-9_]+$")) {
+                    throw new IllegalArgumentException("Username can only contain letters, numbers, and underscores");
+                }
+                user.setUserName(newUsername);
+                userRepo.save(user);
+            }
+        }
         if (dto.getBio() != null) {
             if (dto.getBio().length() > 500) {
                 throw new IllegalArgumentException("Bio too long");
