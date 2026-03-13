@@ -9,10 +9,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URISyntaxException;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.regex.*;
 
@@ -21,7 +27,14 @@ import java.util.regex.*;
 public class LeetCodeProblemService {
     private final ProblemRepo problemRepo;
     private final TestCaseRepo testCaseRepo;
+    private final ResourceLoader resourceLoader;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Configurable path – override with app.problems.file in application.properties
+     */
+    @Value("${app.problems.file:merged_problems.json}")
+    private String problemsFilePath;
 
     // In-memory index: difficulty -> list of parsed JSON nodes
     private final Map<Difficulty, List<JsonNode>> problemsByDifficulty = new EnumMap<>(Difficulty.class);
@@ -33,14 +46,16 @@ public class LeetCodeProblemService {
             problemsByDifficulty.put(d, new ArrayList<>());
         }
 
-        File mergedFile = new File("merged_problems.json");
-        if (!mergedFile.exists()) {
-            System.err.println("WARNING: merged_problems.json not found at: " + mergedFile.getAbsolutePath());
+        InputStream inputStream = resolveProblemsFile();
+        if (inputStream == null) {
+            System.err.println("WARNING: merged_problems.json not found in any of the search locations. " +
+                    "Matchmaking will fail until the file is available. " +
+                    "Set app.problems.file in application.properties to override the path.");
             return;
         }
 
         try {
-            JsonNode root = objectMapper.readTree(mergedFile);
+            JsonNode root = objectMapper.readTree(inputStream);
             JsonNode questions = root.get("questions");
             if (questions == null || !questions.isArray()) {
                 System.err.println("WARNING: merged_problems.json does not contain a 'questions' array");
@@ -60,8 +75,50 @@ public class LeetCodeProblemService {
                 System.out.println("  " + d + ": " + problemsByDifficulty.get(d).size() + " problems");
             }
         } catch (IOException e) {
-            System.err.println("Failed to load merged_problems.json: " + e.getMessage());
+            System.err.println("Failed to parse merged_problems.json: " + e.getMessage());
         }
+    }
+
+    // Tries each candidate File in order; returns an InputStream for the first one found.
+    private InputStream resolveProblemsFile() {
+        System.out.println("LeetCodeProblemService: cwd=" + System.getProperty("user.dir")
+                + ", looking for '" + problemsFilePath + "'");
+
+        // 1. Absolute path — use directly; relative path — walk up from cwd
+        File direct = new File(problemsFilePath);
+        if (direct.isAbsolute()) {
+            InputStream s = openFile(direct); if (s != null) return s;
+        } else {
+            for (File dir = new File(System.getProperty("user.dir")); dir != null; dir = dir.getParentFile()) {
+                InputStream s = openFile(new File(dir, problemsFilePath)); if (s != null) return s;
+            }
+        }
+
+        // 2. Classpath
+        try {
+            Resource r = resourceLoader.getResource("classpath:" + problemsFilePath);
+            if (r.exists()) return r.getInputStream();
+        } catch (IOException ignored) {}
+
+        // 3. Beside / one level above the running jar (Docker / standalone jar)
+        try {
+            File jarDir = Paths.get(getClass().getProtectionDomain().getCodeSource().getLocation().toURI())
+                    .getParent().toFile();
+            InputStream s = openFile(new File(jarDir, problemsFilePath)); if (s != null) return s;
+            s = openFile(new File(jarDir.getParentFile(), problemsFilePath)); if (s != null) return s;
+        } catch (URISyntaxException ignored) {}
+
+        System.err.println("LeetCodeProblemService: FAILED – could not find '" + problemsFilePath + "'."
+                + " Set app.problems.file=<absolute-path> in application.properties to fix.");
+        return null;
+    }
+
+    private InputStream openFile(File f) {
+        if (!f.exists()) return null;
+        try {
+            System.out.println("LeetCodeProblemService: found at " + f.getAbsolutePath());
+            return java.nio.file.Files.newInputStream(f.toPath());
+        } catch (IOException e) { return null; }
     }
 
     /**
@@ -201,7 +258,8 @@ public class LeetCodeProblemService {
         return "";
     }
     private String cleanDescription(String desc) {
-        if (desc == null) return "";
+        if (desc == null)
+            return "";
         return desc.replaceAll("(?s)\\n\\s*Example\\s+\\d+:.*$", "").trim();
     }
 

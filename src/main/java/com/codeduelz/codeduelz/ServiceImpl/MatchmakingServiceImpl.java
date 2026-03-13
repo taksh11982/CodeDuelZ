@@ -38,9 +38,7 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Queue per difficulty: difficulty -> list of waiting usernames
     private final Map<String, ConcurrentLinkedQueue<String>> queues = new ConcurrentHashMap<>();
-    // Track which match each user is in: username -> matchId
     private final Map<String, Long> userToMatch = new ConcurrentHashMap<>();
 
     @Override
@@ -143,10 +141,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         }
     }
 
-    /**
-     * Run code against example test cases (for the "Run" button).
-     * Does NOT affect the match outcome. Just returns execution results.
-     */
     @Override
     public void runCode(String username, Long matchId, String code, String language) {
         Match match = matchRepo.findById(matchId).orElse(null);
@@ -161,7 +155,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             return;
         }
 
-        // Run asynchronously so we don't block the WebSocket thread
         CompletableFuture.runAsync(() -> {
             String methodName = match.getProblem().getMethodName();
             CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases,
@@ -170,10 +163,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         });
     }
 
-    /**
-     * Submit code for judging (for the "Submit" button).
-     * Evaluates code against ALL test cases. If ALL pass, the user wins.
-     */
     @Override
     public void submitCode(String username, Long matchId, String code, String language) {
         Match match = matchRepo.findById(matchId).orElse(null);
@@ -188,7 +177,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         List<TestCase> testCases = testCaseRepo.findByProblem(match.getProblem());
 
-        // Save the submission
         Submission submission = new Submission();
         submission.setUser(user);
         submission.setMatch(match);
@@ -200,7 +188,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         submissionRepo.save(submission);
 
         if (testCases.isEmpty()) {
-            // Fallback: no test cases → first-to-submit wins (legacy behavior)
             submission.setStatus(SubmissionStatus.ACCEPTED);
             submission.setTestCasesPassed(0);
             submission.setTestCasesTotal(0);
@@ -211,13 +198,11 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             return;
         }
 
-        // Run code against test cases asynchronously
         CompletableFuture.runAsync(() -> {
             String methodName = match.getProblem().getMethodName();
             CodeExecutionResultDto result = codeExecutionService.evaluateAgainstTestCases(code, language, testCases,
                     methodName);
 
-            // Update submission with results
             submission.setTestCasesPassed(result.getTotalPassed());
             submission.setTestCasesTotal(result.getTotalTests());
             try {
@@ -229,14 +214,11 @@ public class MatchmakingServiceImpl implements MatchmakingService {
                 submission.setStatus(SubmissionStatus.ACCEPTED);
                 submissionRepo.save(submission);
 
-                // Re-check match is still ongoing (another player might have won while we were
-                // executing)
                 Match freshMatch = matchRepo.findById(matchId).orElse(null);
                 if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
                     declareWinner(freshMatch, user, username);
                 }
             } else {
-                // Map result status to SubmissionStatus
                 switch (result.getStatus()) {
                     case "COMPILATION_ERROR" -> submission.setStatus(SubmissionStatus.COMPILATION_ERROR);
                     case "RUNTIME_ERROR" -> submission.setStatus(SubmissionStatus.RUNTIME_ERROR);
@@ -246,7 +228,6 @@ public class MatchmakingServiceImpl implements MatchmakingService {
                 submissionRepo.save(submission);
             }
 
-            // Send results back to the submitter
             sendSubmitResult(username, result);
         });
     }
@@ -263,14 +244,12 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         updateRatings(match);
 
-        // Notify both players of the match result
         Map<String, Object> result = Map.of(
                 "matchId", match.getMatchId(),
                 "winnerId", winner.getUserId(),
                 "winnerName", winnerName);
         messaging.convertAndSend("/topic/match/" + match.getMatchId(), result);
 
-        // Persist match result notifications
         User loser = isPlayer1 ? match.getPlayer2() : match.getPlayer1();
         notificationService.create(winner, NotificationType.MATCH_RESULT,
                 "You won against " + loser.getUsername() + "! +25 ELO", loser.getUsername(), match.getMatchId());
