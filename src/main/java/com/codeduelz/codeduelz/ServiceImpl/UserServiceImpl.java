@@ -50,11 +50,14 @@ public class UserServiceImpl implements UserService {
                     User newUser = new User();
                     newUser.setProviderId(uid);              // Firebase UID
                     newUser.setEmail(email);
-                    newUser.setUserName(
-                            email != null
-                                    ? email.split("@")[0]
-                                    : "user_" + uid.substring(0, 6)
-                    );
+                    String baseName = email != null ? email.split("@")[0] : "user_" + uid.substring(0, 6);
+                    String tempName = baseName;
+                    int suffix = 1;
+                    while (userRepo.existsByUserName(tempName)) {
+                        tempName = baseName + suffix;
+                        suffix++;
+                    }
+                    newUser.setUserName(tempName);
                     newUser.setProvider(AuthProvider.FIREBASE);
                     newUser.setRole(Role.USER);
                     return newUser;

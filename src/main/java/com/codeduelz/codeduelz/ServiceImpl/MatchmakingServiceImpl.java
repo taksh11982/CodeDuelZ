@@ -73,8 +73,17 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         User player1 = userRepo.findByUserName(username1).orElse(null);
         User player2 = userRepo.findByUserName(username2).orElse(null);
         log.info("FOUND USERS: p1={}, p2={}", (player1 != null), (player2 != null));
-        if (player1 == null || player2 == null)
+        if (player1 == null || player2 == null) {
+            if (player1 != null) {
+                log.info("Putting {} back in queue", username1);
+                queue.offer(username1);
+            }
+            if (player2 != null) {
+                log.info("Putting {} back in queue", username2);
+                queue.offer(username2);
+            }
             return;
+        }
 
         try {
             Difficulty diff;

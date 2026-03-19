@@ -51,6 +51,7 @@ public class FirebaseAuthenticationFilter
 
                 SecurityContextHolder.getContext().setAuthentication(auth);
             } catch (Exception e) {
+                logger.error("Firebase auth failed: " + e.getMessage(), e);
             }
         }
 
