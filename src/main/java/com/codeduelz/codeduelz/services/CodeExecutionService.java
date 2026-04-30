@@ -843,6 +843,13 @@ public class CodeExecutionService {
             return token.endsWith(";") ? token : token + ";";
         }
 
+        // Strip LeetCode-style "varname = " prefix if present
+        if (token.matches("\\w+\\s*=\\s*\\[.*")) {
+            token = token.substring(token.indexOf('[')).trim();
+        } else if (token.matches("\\w+\\s*=\\s*.*")) {
+            token = token.substring(token.indexOf('=') + 1).trim();
+        }
+
         // 2D Array: "[[1,2],[3,4]]" — must be checked BEFORE 1D array
         if (token.startsWith("[[") && token.endsWith("]]")) {
             // Convert [[1,2],[3,4]] → {{1,2},{3,4}}

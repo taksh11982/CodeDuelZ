@@ -27,6 +27,7 @@ public class WebSocketPresenceEventListener {
     public static final Map<String, String> sessionUserMap = new ConcurrentHashMap<>();
 
     private final UserRepo userRepo;
+    private final com.codeduelz.codeduelz.services.MatchmakingService matchmakingService;
 
     @EventListener
     @Transactional
@@ -36,7 +37,11 @@ public class WebSocketPresenceEventListener {
 
         String username = sessionUserMap.remove(sessionId);
         if (username != null) {
-            log.info("User {} disconnected (session {}), marking offline", username, sessionId);
+            log.info("User {} disconnected (session {}), marking offline and leaving queue", username, sessionId);
+            
+            // Clean up matchmaking state
+            matchmakingService.leaveQueue(username);
+
             userRepo.findByUserName(username).ifPresent(user -> {
                 user.setIsOnline(false);
                 user.setLastSeen(LocalDateTime.now());

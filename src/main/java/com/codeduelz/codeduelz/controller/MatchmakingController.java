@@ -47,4 +47,11 @@ public class MatchmakingController {
         Long matchId = Long.parseLong(payload.get("matchId").toString());
         matchmakingService.handleTimeout(matchId);
     }
+
+    @MessageMapping("/match/quit")
+    public void quitMatch(@Payload Map<String, Object> payload) {
+        String username = (String) payload.get("username");
+        Long matchId = Long.parseLong(payload.get("matchId").toString());
+        matchmakingService.quitMatch(username, matchId);
+    }
 }

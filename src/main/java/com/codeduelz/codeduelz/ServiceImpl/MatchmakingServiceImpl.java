@@ -49,13 +49,13 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     @Override
     public void joinQueue(String username, String difficulty) {
         log.info("JOIN QUEUE: {} for {}", username, difficulty);
-        // Atomic check-and-add: putIfAbsent returns null only if the key was absent
-        if (queuedUsers.putIfAbsent(username, difficulty) != null) {
-            log.info("User {} already in queue, ignoring duplicate join", username);
-            return;
-        }
+        // Ensure user is not in any other queue first to handle refreshes/stale states
+        leaveQueue(username);
+        
         ConcurrentLinkedQueue<String> queue = queues.computeIfAbsent(difficulty, k -> new ConcurrentLinkedQueue<>());
         queue.add(username);
+        queuedUsers.put(username, difficulty);
+        
         log.info("QUEUE SIZE for {}: {}", difficulty, queue.size());
         tryMatch(difficulty);
     }
@@ -213,7 +213,18 @@ public class MatchmakingServiceImpl implements MatchmakingService {
             submission.setTestCasesPassed(0);
             submission.setTestCasesTotal(0);
             submissionRepo.save(submission);
-            declareWinner(match, user, username);
+            
+            Object lock = matchLocks.computeIfAbsent(matchId, k -> new Object());
+            synchronized (lock) {
+                try {
+                    Match freshMatch = matchRepo.findById(matchId).orElse(null);
+                    if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
+                        declareWinner(freshMatch, user, username);
+                    }
+                } finally {
+                    matchLocks.remove(matchId, lock);
+                }
+            }
             sendSubmitResult(username, new CodeExecutionResultDto(
                     "ACCEPTED", List.of(), null, 0, 0));
             return;
@@ -238,9 +249,13 @@ public class MatchmakingServiceImpl implements MatchmakingService {
                 // Synchronized on per-match lock to prevent double-win race condition
                 Object lock = matchLocks.computeIfAbsent(matchId, k -> new Object());
                 synchronized (lock) {
-                    Match freshMatch = matchRepo.findById(matchId).orElse(null);
-                    if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
-                        declareWinner(freshMatch, user, username);
+                    try {
+                        Match freshMatch = matchRepo.findById(matchId).orElse(null);
+                        if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
+                            declareWinner(freshMatch, user, username);
+                        }
+                    } finally {
+                        matchLocks.remove(matchId, lock);
                     }
                 }
             } else {
@@ -276,10 +291,14 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         messaging.convertAndSend("/topic/match/" + match.getMatchId(), result);
 
         User loser = isPlayer1 ? match.getPlayer2() : match.getPlayer1();
-        notificationService.create(winner, NotificationType.MATCH_RESULT,
-                "You won against " + loser.getUsername() + "! +25 ELO", loser.getUsername(), match.getMatchId());
-        notificationService.create(loser, NotificationType.MATCH_RESULT,
-                "You lost to " + winner.getUsername() + ". -15 ELO", winner.getUsername(), match.getMatchId());
+        try {
+            notificationService.create(winner, NotificationType.MATCH_RESULT,
+                    "You won against " + loser.getUsername() + "! +25 ELO", loser.getUsername(), match.getMatchId());
+            notificationService.create(loser, NotificationType.MATCH_RESULT,
+                    "You lost to " + winner.getUsername() + ". -15 ELO", winner.getUsername(), match.getMatchId());
+        } catch (Exception ex) {
+            log.error("Failed to create notifications for match {}: {}", match.getMatchId(), ex.getMessage());
+        }
 
         userToMatch.remove(match.getPlayer1().getUsername());
         userToMatch.remove(match.getPlayer2().getUsername());
@@ -329,37 +348,68 @@ public class MatchmakingServiceImpl implements MatchmakingService {
         // (both players' frontends send timeout at the same time)
         Object lock = matchLocks.computeIfAbsent(matchId, k -> new Object());
         synchronized (lock) {
-            Match match = matchRepo.findById(matchId).orElse(null);
-            if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
+            try {
+                Match match = matchRepo.findById(matchId).orElse(null);
+                if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
 
-            match.setStatus(MatchStatus.COMPLETED);
-            match.setEndTime(LocalDateTime.now());
-            match.setWinnerId(null);
-            match.setPlayer1RatingChange(-10);
-            match.setPlayer2RatingChange(-10);
-            matchRepo.save(match);
+                match.setStatus(MatchStatus.COMPLETED);
+                match.setEndTime(LocalDateTime.now());
+                match.setWinnerId(null);
+                match.setPlayer1RatingChange(-10);
+                match.setPlayer2RatingChange(-10);
+                matchRepo.save(match);
 
-            for (User player : List.of(match.getPlayer1(), match.getPlayer2())) {
-                profileRepo.findByUser(player).ifPresent(p -> {
-                    p.setTotalMatches(p.getTotalMatches() + 1);
-                    p.setLosses(p.getLosses() + 1);
-                    p.setRating(p.getRating() - 10);
-                    profileRepo.save(p);
-                });
+                for (User player : List.of(match.getPlayer1(), match.getPlayer2())) {
+                    profileRepo.findByUser(player).ifPresent(p -> {
+                        p.setTotalMatches(p.getTotalMatches() + 1);
+                        p.setLosses(p.getLosses() + 1);
+                        p.setRating(p.getRating() - 10);
+                        profileRepo.save(p);
+                    });
+                }
+
+                messaging.convertAndSend("/topic/match/" + matchId,
+                        Map.of("matchId", matchId, "winnerId", "TIMEOUT", "winnerName", "TIMEOUT"));
+
+                notificationService.create(match.getPlayer1(), NotificationType.MATCH_RESULT,
+                        "Match timed out. -10 ELO", match.getPlayer2().getUsername(), matchId);
+                notificationService.create(match.getPlayer2(), NotificationType.MATCH_RESULT,
+                        "Match timed out. -10 ELO", match.getPlayer1().getUsername(), matchId);
+
+                userToMatch.remove(match.getPlayer1().getUsername());
+                userToMatch.remove(match.getPlayer2().getUsername());
+            } finally {
+                // Safely clean up the lock entry after match is done
+                matchLocks.remove(matchId, lock);
             }
-
-            messaging.convertAndSend("/topic/match/" + matchId,
-                    Map.of("matchId", matchId, "winnerId", "TIMEOUT", "winnerName", "TIMEOUT"));
-
-            notificationService.create(match.getPlayer1(), NotificationType.MATCH_RESULT,
-                    "Match timed out. -10 ELO", match.getPlayer2().getUsername(), matchId);
-            notificationService.create(match.getPlayer2(), NotificationType.MATCH_RESULT,
-                    "Match timed out. -10 ELO", match.getPlayer1().getUsername(), matchId);
-
-            userToMatch.remove(match.getPlayer1().getUsername());
-            userToMatch.remove(match.getPlayer2().getUsername());
         }
-        // Clean up the lock entry after match is done
-        matchLocks.remove(matchId);
+    }
+    
+    @Override
+    public void quitMatch(String username, Long matchId) {
+        Object lock = matchLocks.computeIfAbsent(matchId, k -> new Object());
+        synchronized (lock) {
+            try {
+                Match match = matchRepo.findById(matchId).orElse(null);
+                if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
+
+                // Determine the winner (the player who did NOT quit)
+                User winner;
+                String winnerName;
+                if (match.getPlayer1().getUsername().equalsIgnoreCase(username)) {
+                    winner = match.getPlayer2();
+                    winnerName = match.getPlayer2().getUsername();
+                } else if (match.getPlayer2().getUsername().equalsIgnoreCase(username)) {
+                    winner = match.getPlayer1();
+                    winnerName = match.getPlayer1().getUsername();
+                } else {
+                    return; // User is not part of this match
+                }
+
+                declareWinner(match, winner, winnerName);
+            } finally {
+                matchLocks.remove(matchId, lock);
+            }
+        }
     }
 }
