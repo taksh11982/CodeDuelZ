@@ -10,4 +10,6 @@ import java.util.Optional;
 public interface ProblemRepo extends JpaRepository<Problem,Long> {
     List<Problem> findByDifficulty(Difficulty difficulty);
     Optional<Problem> findByLeetcodeId(String leetcodeId);
+    // New method returning possibly multiple entries – we will pick the first one to avoid NonUniqueResultException
+    List<Problem> findAllByLeetcodeId(String leetcodeId);
 }

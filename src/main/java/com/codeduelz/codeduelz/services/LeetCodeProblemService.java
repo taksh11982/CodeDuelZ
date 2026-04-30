@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.*;
 
 @Service
@@ -121,6 +122,8 @@ public class LeetCodeProblemService {
         } catch (IOException e) { return null; }
     }
 
+    private final Set<String> processedProblemIds = ConcurrentHashMap.newKeySet();
+
     /**
      * Get a random LeetCode problem for the given difficulty.
      * Returns the Problem entity (saved to DB) and the raw JSON data
@@ -128,13 +131,27 @@ public class LeetCodeProblemService {
      */
     public Map<String, Object> getRandomProblemData(Difficulty difficulty) {
         List<JsonNode> problems = problemsByDifficulty.get(difficulty);
-        if (problems.isEmpty()) {
+        if (problems == null || problems.isEmpty()) {
+            System.out.println("LeetCodeProblemService: No problems in memory for " + difficulty + ". Falling back to Database.");
+            // Fallback: Try to get one from the database if we've previously loaded some
+            List<Problem> dbProblems = problemRepo.findByDifficulty(difficulty);
+            if (!dbProblems.isEmpty()) {
+                Problem p = dbProblems.get(random.nextInt(dbProblems.size()));
+                Map<String, Object> result = new HashMap<>();
+                result.put("problem", p);
+                result.put("examples", new ArrayList<>());
+                result.put("constraints", new ArrayList<>());
+                result.put("codeSnippets", Map.of("java", "// No snippet available from DB fallback"));
+                return result;
+            }
+            
             problems = problemsByDifficulty.values().stream()
                     .flatMap(List::stream)
                     .toList();
         }
+        
         if (problems.isEmpty()) {
-            throw new RuntimeException("No LeetCode problems available");
+            throw new RuntimeException("No LeetCode problems available in JSON or Database. Check merged_problems.json path.");
         }
 
         JsonNode node = problems.get(random.nextInt(problems.size()));
@@ -144,27 +161,36 @@ public class LeetCodeProblemService {
     private Map<String, Object> loadProblemData(JsonNode root) {
         String leetcodeId = root.has("problem_id") ? root.get("problem_id").asText() : "";
 
-        // Load or create the Problem entity
-        Problem problem = problemRepo.findByLeetcodeId(leetcodeId).orElse(null);
+        // Check cache first to avoid DB query for every single match
+        boolean wasProcessed = processedProblemIds.contains(leetcodeId);
+        
+        Problem problem;
+        if (wasProcessed) {
+            // Attempt to fetch a unique problem. If duplicates exist, pick the first one.
+            List<Problem> dup = problemRepo.findAllByLeetcodeId(leetcodeId);
+            problem = dup.isEmpty() ? null : dup.get(0);
+        } else {
+            // Attempt to fetch a unique problem. If duplicates exist, pick the first one.
+            List<Problem> dup = problemRepo.findAllByLeetcodeId(leetcodeId);
+            problem = dup.isEmpty() ? null : dup.get(0);
+            if (problem == null) {
+                problem = new Problem();
+                problem.setLeetcodeId(leetcodeId);
+                problem.setTitle(root.has("title") ? root.get("title").asText() : "Unknown");
+                problem.setProblemSlug(root.has("problem_slug") ? root.get("problem_slug").asText() : "");
+                problem.setDifficulty(mapDifficulty(root.has("difficulty") ? root.get("difficulty").asText() : "Medium"));
+                problem.setSource("LEETCODE");
+                problem.setDescription(cleanDescription(root.has("description") ? root.get("description").asText() : ""));
+                problem.setMethodName(extractMethodName(root));
+                problem = problemRepo.save(problem);
+            }
+            processedProblemIds.add(leetcodeId);
+            // Extract and save test cases only once
+            extractAndSaveTestCases(problem, root);
+        }
+        
         if (problem == null) {
-            problem = new Problem();
-            problem.setLeetcodeId(leetcodeId);
-            problem.setTitle(root.has("title") ? root.get("title").asText() : "Unknown");
-            problem.setProblemSlug(root.has("problem_slug") ? root.get("problem_slug").asText() : "");
-            problem.setDifficulty(mapDifficulty(root.has("difficulty") ? root.get("difficulty").asText() : "Medium"));
-            problem.setSource("LEETCODE");
-            problem.setDescription(cleanDescription(root.has("description") ? root.get("description").asText() : ""));
-
-            // Extract method name from Java code snippet
-            String methodName = extractMethodName(root);
-            problem.setMethodName(methodName);
-
-            problem = problemRepo.save(problem);
-        } else if (problem.getMethodName() == null || problem.getMethodName().isEmpty()) {
-            // Update existing problems that don't have methodName set
-            String methodName = extractMethodName(root);
-            problem.setMethodName(methodName);
-            problem = problemRepo.save(problem);
+             throw new RuntimeException("Failed to load problem entity for ID: " + leetcodeId);
         }
 
         // Build structured data for WebSocket payload
@@ -190,9 +216,6 @@ public class LeetCodeProblemService {
             root.get("code_snippets").fields()
                     .forEachRemaining(entry -> codeSnippets.put(entry.getKey(), entry.getValue().asText()));
         }
-
-        // Extract and save test cases from examples if not already saved
-        extractAndSaveTestCases(problem, root);
 
         Map<String, Object> result = new HashMap<>();
         result.put("problem", problem);
@@ -264,13 +287,16 @@ public class LeetCodeProblemService {
     }
 
     private Difficulty mapDifficulty(String diffStr) {
-        if (diffStr == null)
+        if (diffStr == null || diffStr.isEmpty())
             return Difficulty.MEDIUM;
-        return switch (diffStr.toLowerCase()) {
-            case "easy" -> Difficulty.EASY;
-            case "hard" -> Difficulty.HARD;
-            default -> Difficulty.MEDIUM;
-        };
+            
+        String d = diffStr.toLowerCase();
+        if (d.contains("easy") || d.equals("1"))
+            return Difficulty.EASY;
+        if (d.contains("hard") || d.equals("3"))
+            return Difficulty.HARD;
+            
+        return Difficulty.MEDIUM;
     }
 
     /**

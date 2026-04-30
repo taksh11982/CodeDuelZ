@@ -48,6 +48,8 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
     @Override
     public void joinQueue(String username, String difficulty) {
+        // Normalize difficulty to upper‑case for internal queue handling (case‑insensitive across client and server)
+        difficulty = difficulty != null ? difficulty.toUpperCase(Locale.ROOT) : "EASY";
         log.info("JOIN QUEUE: {} for {}", username, difficulty);
         // Ensure user is not in any other queue first to handle refreshes/stale states
         leaveQueue(username);
