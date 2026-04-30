@@ -125,15 +125,23 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
 
     private ExternalStatsDto.CodeChefStats getCodeChef(String user) {
         try {
-            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.connect("https://www.codechef.com/users/" + user).get();
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.connect("https://www.codechef.com/users/" + user)
+                    .timeout(5000)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .get();
             ExternalStatsDto.CodeChefStats cc = new ExternalStatsDto.CodeChefStats();
             try {
-                cc.setCurrentRating(Integer.parseInt(doc.select(".rating-number").text()));
-            } catch (Exception e) {
+                String ratingText = doc.select(".rating-number").text().trim();
+                if (!ratingText.isEmpty()) {
+                    cc.setCurrentRating(Integer.parseInt(ratingText));
+                }
+            } catch (NumberFormatException e) {
+                // Rating element found but couldn't parse — layout may have changed
             }
             try {
                 cc.setStars(doc.select(".rating-star span").text());
             } catch (Exception e) {
+                // Stars element not found
             }
             return cc;
         } catch (Exception e) {

@@ -3,6 +3,7 @@ package com.codeduelz.codeduelz.ServiceImpl;
 import com.codeduelz.codeduelz.dtos.FriendDto;
 import com.codeduelz.codeduelz.dtos.FriendRequestDto;
 import com.codeduelz.codeduelz.entities.Friend;
+import com.codeduelz.codeduelz.entities.FriendStatus;
 import com.codeduelz.codeduelz.entities.NotificationType;
 import com.codeduelz.codeduelz.entities.User;
 import com.codeduelz.codeduelz.repo.FriendRepo;
@@ -39,12 +40,12 @@ public class FriendServiceImpl implements FriendService {
         Friend request = new Friend();
         request.setUser(from);
         request.setFriendUser(to);
-        request.setStatus("PENDING");
+        request.setStatus(FriendStatus.PENDING);
 
         Friend reverse = new Friend();
         reverse.setUser(to);
         reverse.setFriendUser(from);
-        reverse.setStatus("PENDING");
+        reverse.setStatus(FriendStatus.PENDING);
 
         friendRepo.save(request);
         friendRepo.save(reverse);
@@ -64,7 +65,7 @@ public class FriendServiceImpl implements FriendService {
             throw new IllegalArgumentException("You are not authorized to accept this request");
         }
 
-        if (!"PENDING".equals(friendRequest.getStatus())) {
+        if (friendRequest.getStatus() != FriendStatus.PENDING) {
             throw new IllegalStateException("Friend request is not pending");
         }
 
@@ -72,7 +73,7 @@ public class FriendServiceImpl implements FriendService {
                 friendRequest.getUser().getUsername());
 
         // Update this side (sender -> currentUser) to ACCEPTED
-        friendRequest.setStatus("ACCEPTED");
+        friendRequest.setStatus(FriendStatus.ACCEPTED);
         friendRepo.save(friendRequest);
 
         notificationService.create(friendRequest.getUser(), NotificationType.FRIEND_ACCEPTED,
@@ -80,11 +81,11 @@ public class FriendServiceImpl implements FriendService {
 
         // Find and update the reverse relationship (currentUser -> sender)
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(
-                user, friendRequest.getUser(), "PENDING")
+                user, friendRequest.getUser(), FriendStatus.PENDING)
                 .orElse(null);
 
         if (reverseRequest != null) {
-            reverseRequest.setStatus("ACCEPTED");
+            reverseRequest.setStatus(FriendStatus.ACCEPTED);
             friendRepo.save(reverseRequest);
         }
     }
@@ -100,7 +101,7 @@ public class FriendServiceImpl implements FriendService {
             throw new IllegalArgumentException("You are not authorized to reject this request");
         }
 
-        if (!"PENDING".equals(friendRequest.getStatus())) {
+        if (friendRequest.getStatus() != FriendStatus.PENDING) {
             throw new IllegalStateException("Friend request is not pending");
         }
 
@@ -112,7 +113,7 @@ public class FriendServiceImpl implements FriendService {
 
         // Find and delete the reverse relationship (currentUser -> sender)
         Friend reverseRequest = friendRepo.findByUserAndFriendUserAndStatus(
-                user, friendRequest.getUser(), "PENDING")
+                user, friendRequest.getUser(), FriendStatus.PENDING)
                 .orElse(null);
 
         if (reverseRequest != null) {
@@ -122,7 +123,7 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     public List<FriendDto> getFriends(User user) {
-        List<Friend> friends = friendRepo.findByUserAndStatus(user, "ACCEPTED");
+        List<Friend> friends = friendRepo.findByUserAndStatus(user, FriendStatus.ACCEPTED);
 
         log.info("Fetching {} accepted friends for user {}", friends.size(), user.getUsername());
 
@@ -144,7 +145,7 @@ public class FriendServiceImpl implements FriendService {
     @Override
     public List<FriendRequestDto> getPendingRequests(User user) {
         // Get incoming friend requests (where user is the friendUser)
-        List<Friend> pendingRequests = friendRepo.findByFriendUserAndStatus(user, "PENDING");
+        List<Friend> pendingRequests = friendRepo.findByFriendUserAndStatus(user, FriendStatus.PENDING);
 
         log.info("Fetching {} pending friend requests for user {}", pendingRequests.size(), user.getUsername());
 
@@ -155,7 +156,7 @@ public class FriendServiceImpl implements FriendService {
                         request.getUser().getUsername(),
                         user.getUserId(),
                         user.getUsername(),
-                        request.getStatus(),
+                        request.getStatus().name(),
                         request.getCreatedAt()))
                 .collect(Collectors.toList());
     }
@@ -165,7 +166,7 @@ public class FriendServiceImpl implements FriendService {
         Friend friendship = friendRepo.findByIdAndUser(friendId, user)
                 .orElseThrow(() -> new IllegalArgumentException("Friendship not found"));
 
-        if (!"ACCEPTED".equals(friendship.getStatus())) {
+        if (friendship.getStatus() != FriendStatus.ACCEPTED) {
             throw new IllegalStateException("Can only remove accepted friends");
         }
 
@@ -176,7 +177,7 @@ public class FriendServiceImpl implements FriendService {
 
         // Find and delete the reverse relationship
         Friend reverseFriendship = friendRepo.findByUserAndFriendUserAndStatus(
-                friendship.getFriendUser(), user, "ACCEPTED")
+                friendship.getFriendUser(), user, FriendStatus.ACCEPTED)
                 .orElse(null);
 
         if (reverseFriendship != null) {

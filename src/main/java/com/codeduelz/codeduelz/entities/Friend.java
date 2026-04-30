@@ -23,8 +23,9 @@ public class Friend {
     @ManyToOne
     @JoinColumn(name = "friend_user_id",nullable = false)
     private User friendUser;
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status;
+    private FriendStatus status;
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

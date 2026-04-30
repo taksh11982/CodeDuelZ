@@ -62,6 +62,7 @@ public class MatchServiceImpl implements MatchService {
         }
         User winner = userRepo.findById(dto.getWinnerUserId())
                 .orElseThrow(() -> new RuntimeException("Winner not found"));
+        match.setWinnerId(dto.getWinnerUserId());
         match.setEndTime(LocalDateTime.now());
         match.setStatus(MatchStatus.COMPLETED);
         matchRepo.save(match);
@@ -124,10 +125,10 @@ public class MatchServiceImpl implements MatchService {
         profile.setTotalMatches(profile.getTotalMatches() + 1);
         if (player.getUserId().equals(winner.getUserId())) {
             profile.setWins(profile.getWins() + 1);
-            profile.setRating(profile.getRating() + 10);
+            profile.setRating(profile.getRating() + 25);
         } else {
             profile.setLosses(profile.getLosses() + 1);
-            profile.setRating(profile.getRating() - 5);
+            profile.setRating(profile.getRating() - 15);
         }
         profileRepo.save(profile);
     }

@@ -41,12 +41,20 @@ public class MatchmakingServiceImpl implements MatchmakingService {
     private final Map<String, ConcurrentLinkedQueue<String>> queues = new ConcurrentHashMap<>();
     private final Map<String, Long> userToMatch = new ConcurrentHashMap<>();
 
+    // Per-match locks to prevent race conditions in submitCode/handleTimeout
+    private final ConcurrentHashMap<Long, Object> matchLocks = new ConcurrentHashMap<>();
+    // Track users already in queue to prevent O(n) contains() + non-atomic add
+    private final ConcurrentHashMap<String, String> queuedUsers = new ConcurrentHashMap<>();
+
     @Override
     public void joinQueue(String username, String difficulty) {
         log.info("JOIN QUEUE: {} for {}", username, difficulty);
-        ConcurrentLinkedQueue<String> queue = queues.computeIfAbsent(difficulty, k -> new ConcurrentLinkedQueue<>());
-        if (queue.contains(username))
+        // Atomic check-and-add: putIfAbsent returns null only if the key was absent
+        if (queuedUsers.putIfAbsent(username, difficulty) != null) {
+            log.info("User {} already in queue, ignoring duplicate join", username);
             return;
+        }
+        ConcurrentLinkedQueue<String> queue = queues.computeIfAbsent(difficulty, k -> new ConcurrentLinkedQueue<>());
         queue.add(username);
         log.info("QUEUE SIZE for {}: {}", difficulty, queue.size());
         tryMatch(difficulty);
@@ -54,6 +62,7 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
     @Override
     public void leaveQueue(String username) {
+        queuedUsers.remove(username);
         queues.values().forEach(q -> q.remove(username));
     }
 
@@ -66,6 +75,9 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
         String username1 = queue.poll();
         String username2 = queue.poll();
+        // Remove from tracked set since they're being matched
+        if (username1 != null) queuedUsers.remove(username1);
+        if (username2 != null) queuedUsers.remove(username2);
         log.info("MATCHING: {} vs {}", username1, username2);
         if (username1 == null || username2 == null)
             return;
@@ -223,9 +235,13 @@ public class MatchmakingServiceImpl implements MatchmakingService {
                 submission.setStatus(SubmissionStatus.ACCEPTED);
                 submissionRepo.save(submission);
 
-                Match freshMatch = matchRepo.findById(matchId).orElse(null);
-                if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
-                    declareWinner(freshMatch, user, username);
+                // Synchronized on per-match lock to prevent double-win race condition
+                Object lock = matchLocks.computeIfAbsent(matchId, k -> new Object());
+                synchronized (lock) {
+                    Match freshMatch = matchRepo.findById(matchId).orElse(null);
+                    if (freshMatch != null && freshMatch.getStatus() == MatchStatus.ONGOING) {
+                        declareWinner(freshMatch, user, username);
+                    }
                 }
             } else {
                 switch (result.getStatus()) {
@@ -309,34 +325,41 @@ public class MatchmakingServiceImpl implements MatchmakingService {
 
     @Override
     public void handleTimeout(Long matchId) {
-        Match match = matchRepo.findById(matchId).orElse(null);
-        if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
+        // Synchronized on per-match lock to prevent double-timeout race condition
+        // (both players' frontends send timeout at the same time)
+        Object lock = matchLocks.computeIfAbsent(matchId, k -> new Object());
+        synchronized (lock) {
+            Match match = matchRepo.findById(matchId).orElse(null);
+            if (match == null || match.getStatus() == MatchStatus.COMPLETED) return;
 
-        match.setStatus(MatchStatus.COMPLETED);
-        match.setEndTime(LocalDateTime.now());
-        match.setWinnerId(null);
-        match.setPlayer1RatingChange(-10);
-        match.setPlayer2RatingChange(-10);
-        matchRepo.save(match);
+            match.setStatus(MatchStatus.COMPLETED);
+            match.setEndTime(LocalDateTime.now());
+            match.setWinnerId(null);
+            match.setPlayer1RatingChange(-10);
+            match.setPlayer2RatingChange(-10);
+            matchRepo.save(match);
 
-        for (User player : List.of(match.getPlayer1(), match.getPlayer2())) {
-            profileRepo.findByUser(player).ifPresent(p -> {
-                p.setTotalMatches(p.getTotalMatches() + 1);
-                p.setLosses(p.getLosses() + 1);
-                p.setRating(p.getRating() - 10);
-                profileRepo.save(p);
-            });
+            for (User player : List.of(match.getPlayer1(), match.getPlayer2())) {
+                profileRepo.findByUser(player).ifPresent(p -> {
+                    p.setTotalMatches(p.getTotalMatches() + 1);
+                    p.setLosses(p.getLosses() + 1);
+                    p.setRating(p.getRating() - 10);
+                    profileRepo.save(p);
+                });
+            }
+
+            messaging.convertAndSend("/topic/match/" + matchId,
+                    Map.of("matchId", matchId, "winnerId", "TIMEOUT", "winnerName", "TIMEOUT"));
+
+            notificationService.create(match.getPlayer1(), NotificationType.MATCH_RESULT,
+                    "Match timed out. -10 ELO", match.getPlayer2().getUsername(), matchId);
+            notificationService.create(match.getPlayer2(), NotificationType.MATCH_RESULT,
+                    "Match timed out. -10 ELO", match.getPlayer1().getUsername(), matchId);
+
+            userToMatch.remove(match.getPlayer1().getUsername());
+            userToMatch.remove(match.getPlayer2().getUsername());
         }
-
-        messaging.convertAndSend("/topic/match/" + matchId,
-                Map.of("matchId", matchId, "winnerId", "TIMEOUT", "winnerName", "TIMEOUT"));
-
-        notificationService.create(match.getPlayer1(), NotificationType.MATCH_RESULT,
-                "Match timed out. -10 ELO", match.getPlayer2().getUsername(), matchId);
-        notificationService.create(match.getPlayer2(), NotificationType.MATCH_RESULT,
-                "Match timed out. -10 ELO", match.getPlayer1().getUsername(), matchId);
-
-        userToMatch.remove(match.getPlayer1().getUsername());
-        userToMatch.remove(match.getPlayer2().getUsername());
+        // Clean up the lock entry after match is done
+        matchLocks.remove(matchId);
     }
 }

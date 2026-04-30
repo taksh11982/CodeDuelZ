@@ -8,8 +8,10 @@ import com.codeduelz.codeduelz.repo.UserRepo;
 import com.codeduelz.codeduelz.services.UserService;
 import com.google.firebase.auth.FirebaseToken;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 
 @Service
 @AllArgsConstructor
+@Slf4j
 public class UserServiceImpl implements UserService {
     private final UserRepo userRepo;
     private final PasswordEncoder passwordEncoder;
@@ -60,7 +63,18 @@ public class UserServiceImpl implements UserService {
                     newUser.setUserName(tempName);
                     newUser.setProvider(AuthProvider.FIREBASE);
                     newUser.setRole(Role.USER);
-                    return newUser;
+
+                    // Retry with next suffix if concurrent request claimed this username
+                    for (int attempt = 0; attempt < 3; attempt++) {
+                        try {
+                            return userRepo.save(newUser);
+                        } catch (DataIntegrityViolationException ex) {
+                            log.error("Username collision for '{}', retrying with suffix", newUser.getUsername());
+                            tempName = baseName + (suffix + attempt);
+                            newUser.setUserName(tempName);
+                        }
+                    }
+                    return userRepo.save(newUser); // final attempt — let it throw if still failing
                 });
 
         // Update online status on every authenticated request

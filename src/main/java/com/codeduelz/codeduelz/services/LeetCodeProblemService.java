@@ -248,9 +248,9 @@ public class LeetCodeProblemService {
      * Returns the value after "Section: ", trimmed.
      */
     private String extractSection(String text, String section) {
-        // Pattern to match "Input: ..." or "Output: ..." handling multi-line
-        // The section ends at the next "Output:", "Explanation:", or end of string
-        String pattern = "(?i)" + section + ":\\s*(.+?)(?=\\n(?:Input|Output|Explanation):|$)";
+        // Pattern to match "Input: ..." or "Output: ..." handling multi-line content.
+        // The section ends at the next known label or at end of string.
+        String pattern = "(?i)" + Pattern.quote(section) + ":\\s*(.+?)(?=\\n(?:Input|Output|Explanation):|\\z)";
         Matcher matcher = Pattern.compile(pattern, Pattern.DOTALL).matcher(text);
         if (matcher.find()) {
             return matcher.group(1).trim();

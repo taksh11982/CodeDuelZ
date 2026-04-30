@@ -66,6 +66,18 @@ public class CodeExecutionService {
                 sourceCode = wrapCppCodeIfNeeded(sourceCode, methodName, testInput);
                 System.out.println("[DEBUG] Original C++ code: " + originalCode);
                 System.out.println("[DEBUG] Wrapped C++ code: " + sourceCode);
+            } else if ("python".equalsIgnoreCase(language) && methodName != null && !methodName.isEmpty()
+                    && testInput != null) {
+                String originalCode = sourceCode;
+                sourceCode = wrapPythonCodeIfNeeded(sourceCode, methodName, testInput);
+                System.out.println("[DEBUG] Original Python code: " + originalCode);
+                System.out.println("[DEBUG] Wrapped Python code: " + sourceCode);
+            } else if ("javascript".equalsIgnoreCase(language) && methodName != null && !methodName.isEmpty()
+                    && testInput != null) {
+                String originalCode = sourceCode;
+                sourceCode = wrapJsCodeIfNeeded(sourceCode, methodName, testInput);
+                System.out.println("[DEBUG] Original JS code: " + originalCode);
+                System.out.println("[DEBUG] Wrapped JS code: " + sourceCode);
             }
             String[] langInfo = LANGUAGE_MAP.getOrDefault(language, LANGUAGE_MAP.get("cpp"));
 
@@ -170,10 +182,10 @@ public class CodeExecutionService {
         String compilationError = null;
 
         for (TestCase tc : testCases) {
-            // For Java and C++ with methodName, pass testInput for smart wrapping
+            // For languages with methodName, pass testInput for smart wrapping
             Map<String, Object> execResult;
             boolean needsWrapping = methodName != null && !methodName.isEmpty();
-            if (needsWrapping && ("java".equalsIgnoreCase(language) || "cpp".equalsIgnoreCase(language))) {
+            if (needsWrapping) {
                 execResult = executeCode(sourceCode, language, tc.getInput(), methodName, tc.getInput());
             } else {
                 execResult = executeCode(sourceCode, language, tc.getInput());
@@ -248,10 +260,11 @@ public class CodeExecutionService {
         if (output == null)
             return "";
         return output
-                .replaceAll("\\r\\n", "\n") // normalize line endings
-                .replaceAll(",\\s+", ",") // "1, 2, 3" -> "1,2,3"
+                .replaceAll("\r\n", "\n")   // normalize Windows line endings
+                .replaceAll("\r", "\n")     // normalize standalone CR
+                .replaceAll(",\\s+", ",")   // "1, 2, 3" -> "1,2,3"
                 .replaceAll("\\[\\s+", "[") // "[ 1" -> "[1"
-                .replaceAll("\\s+\\]", "]") // "1 ]" -> "1]"
+                .replaceAll("\\s+]", "]")   // "1 ]" -> "1]"
                 .replaceAll("\\s+$", "")
                 .trim();
     }
@@ -336,6 +349,124 @@ public class CodeExecutionService {
     }
 
     /**
+     * Wrap Python code with a __main__ block that parses test input and calls
+     * the Solution method. Handles arrays, strings, numbers, and booleans.
+     */
+    private String wrapPythonCodeIfNeeded(String code, String methodName, String testInput) {
+        String trimmed = code.trim();
+
+        // If it already has a __main__ guard or explicit print, leave it alone
+        if (trimmed.contains("if __name__") || trimmed.contains("print(")) {
+            return trimmed;
+        }
+
+        // Normalize and split multi-param input
+        String normalizedInput = splitMultiParamInput(testInput);
+        String[] inputLines = (normalizedInput == null || normalizedInput.trim().isEmpty())
+                ? new String[0]
+                : normalizedInput.trim().split("\\r?\\n");
+
+        // Extract parameter types from Java snippet to help with parsing hints
+        // (Python is dynamically typed, so we just parse the raw values)
+        StringBuilder sb = new StringBuilder();
+        sb.append("import json, sys\n\n");
+        sb.append(trimmed).append("\n\n");
+        sb.append("if __name__ == '__main__':\n");
+        sb.append("    sol = Solution()\n");
+
+        StringBuilder argList = new StringBuilder();
+        for (int i = 0; i < inputLines.length; i++) {
+            String argName = "arg" + i;
+            String rawValue = inputLines[i].trim();
+
+            // Strip "varname = " prefix
+            if (rawValue.matches("\\w+\\s*=\\s*.*")) {
+                rawValue = rawValue.substring(rawValue.indexOf('=') + 1).trim();
+            }
+
+            // Python can parse JSON-like LeetCode input directly using json.loads
+            // Replace true/false/null for JSON compat
+            sb.append("    ").append(argName).append(" = json.loads('")
+                    .append(rawValue
+                            .replace("'", "\\'")
+                            .replace("true", "True").replace("false", "False")
+                            .replace("null", "None")
+                            // JSON requires double-quotes, LeetCode already uses them
+                    )
+                    .append("')\n");
+
+            if (i > 0) argList.append(", ");
+            argList.append(argName);
+        }
+
+        // If no input lines, call with no args
+        sb.append("    result = sol.").append(methodName).append("(").append(argList).append(")\n");
+
+        // Print result — convert Python output to match LeetCode expected format
+        sb.append("    if isinstance(result, list):\n");
+        sb.append("        print(json.dumps(result))\n");
+        sb.append("    elif isinstance(result, bool):\n");
+        sb.append("        print(str(result).lower())\n");
+        sb.append("    elif isinstance(result, str):\n");
+        sb.append("        print(result)\n");
+        sb.append("    else:\n");
+        sb.append("        print(result)\n");
+
+        return sb.toString();
+    }
+
+    /**
+     * Wrap JavaScript code with a runner that calls the exported function
+     * with parsed test input. Handles LeetCode-style function definitions.
+     */
+    private String wrapJsCodeIfNeeded(String code, String methodName, String testInput) {
+        String trimmed = code.trim();
+
+        // If it already has a console.log call, leave it alone
+        if (trimmed.contains("console.log(")) {
+            return trimmed;
+        }
+
+        // Normalize and split multi-param input
+        String normalizedInput = splitMultiParamInput(testInput);
+        String[] inputLines = (normalizedInput == null || normalizedInput.trim().isEmpty())
+                ? new String[0]
+                : normalizedInput.trim().split("\\r?\\n");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(trimmed).append("\n\n");
+
+        // Build argument list — JavaScript can parse JSON natively
+        StringBuilder argList = new StringBuilder();
+        for (int i = 0; i < inputLines.length; i++) {
+            String argName = "arg" + i;
+            String rawValue = inputLines[i].trim();
+
+            // Strip "varname = " prefix
+            if (rawValue.matches("\\w+\\s*=\\s*.*")) {
+                rawValue = rawValue.substring(rawValue.indexOf('=') + 1).trim();
+            }
+
+            sb.append("var ").append(argName).append(" = JSON.parse('")
+                    .append(rawValue.replace("'", "\\'"))
+                    .append("');\n");
+
+            if (i > 0) argList.append(", ");
+            argList.append(argName);
+        }
+
+        // Call the function and print result
+        sb.append("var _result = ").append(methodName).append("(").append(argList).append(");\n");
+        sb.append("if (Array.isArray(_result)) {\n");
+        sb.append("    console.log(JSON.stringify(_result));\n");
+        sb.append("} else {\n");
+        sb.append("    console.log(_result);\n");
+        sb.append("}\n");
+
+        return sb.toString();
+    }
+
+    /**
      * Generate a C++ main() that instantiates Solution, feeds test input, and
      * prints result.
      */
@@ -369,8 +500,8 @@ public class CodeExecutionService {
             sb.append("    ").append(decl).append("\n");
         }
         sb.append("    auto result = sol.").append(methodName).append("(").append(argList).append(");\n");
-        // Print result — for vectors use a loop, for primitives use cout
-        sb.append("    cout << result << endl;\n");
+        // Print result — boolalpha ensures bool prints as "true"/"false" not "1"/"0"
+        sb.append("    cout << boolalpha << result << endl;\n");
         sb.append("    return 0;\n");
         sb.append("}\n");
         return sb.toString();

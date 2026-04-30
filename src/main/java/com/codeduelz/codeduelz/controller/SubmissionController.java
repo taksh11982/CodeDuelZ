@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class SubmissionController {
     @Autowired
     private SubmissionService submissionService;
-    @PostMapping("/submissions/submit")
+    @PostMapping("/submit")
     public void submitCode(
             @AuthenticationPrincipal User user,
             @RequestBody SubmitCodeDto dto) {
