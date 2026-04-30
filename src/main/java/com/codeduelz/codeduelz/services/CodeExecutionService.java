@@ -614,6 +614,30 @@ public class CodeExecutionService {
             return sb.toString();
         }
 
+        // char[][]
+        if (t.equals("char[][]")) {
+            // valueOnly looks like [["B","W"],["B","W"]]
+            String content = valueOnly.startsWith("[[") ? valueOnly.substring(1, valueOnly.length() - 1) : valueOnly;
+            List<String> sublists = splitTopLevelArrays(content);
+            StringBuilder sb = new StringBuilder("char[][] " + argName + " = {");
+            for (int i = 0; i < sublists.size(); i++) {
+                if (i > 0) sb.append(", ");
+                String subInner = sublists.get(i).trim();
+                if (subInner.startsWith("[")) subInner = subInner.substring(1, subInner.length() - 1);
+                String[] elements = splitCsvRespectingQuotes(subInner);
+                sb.append("{");
+                for (int j = 0; j < elements.length; j++) {
+                    if (j > 0) sb.append(", ");
+                    String el = elements[j].trim().replace("\"", "'");
+                    if (!el.startsWith("'")) el = "'" + el + "'";
+                    sb.append(el);
+                }
+                sb.append("}");
+            }
+            sb.append("};");
+            return sb.toString();
+        }
+
         // String (singular)
         if (t.equals("String")) {
             String v = valueOnly.startsWith("\"") ? valueOnly : "\"" + valueOnly + "\"";
@@ -712,13 +736,63 @@ public class CodeExecutionService {
             return token.endsWith(";") ? token : token + ";";
         }
 
-        // 2D Array: "[[1,2],[3,4]]" — must be checked BEFORE 1D array
+        // 2D Array: "[[1,2],[3,4]]" or [["B","W"]] — must be checked BEFORE 1D array
         if (token.startsWith("[[") && token.endsWith("]]")) {
-            // Convert [[1,2],[3,4]] → {{1,2},{3,4}}
-            String inner = token.substring(1, token.length() - 1); // [1,2],[3,4]
-            // Replace each inner [...] with {...}
-            inner = inner.replaceAll("\\[", "{").replaceAll("\\]", "}");
-            return "int[][] " + varName + " = {" + inner + "};";
+            // Check if it contains string/char elements
+            String outerContent = token.substring(1, token.length() - 1);
+            List<String> sublists2D = splitTopLevelArrays(outerContent);
+            boolean isChar2D = false;
+            boolean isString2D = false;
+            if (!sublists2D.isEmpty()) {
+                String firstSub = sublists2D.get(0).trim();
+                String firstInner = firstSub.startsWith("[") ? firstSub.substring(1, firstSub.length() - 1) : firstSub;
+                isChar2D = looksLikeCharArray(firstInner);
+                isString2D = !isChar2D && looksLikeStringArray(firstInner);
+            }
+            if (isChar2D) {
+                // Build char[][]
+                StringBuilder sb2D = new StringBuilder("char[][] " + varName + " = {");
+                for (int i = 0; i < sublists2D.size(); i++) {
+                    if (i > 0) sb2D.append(", ");
+                    String subInner = sublists2D.get(i).trim();
+                    if (subInner.startsWith("[")) subInner = subInner.substring(1, subInner.length() - 1);
+                    String[] elems = splitCsvRespectingQuotes(subInner);
+                    sb2D.append("{");
+                    for (int j = 0; j < elems.length; j++) {
+                        if (j > 0) sb2D.append(", ");
+                        String el = elems[j].trim().replace("\"", "'");
+                        if (!el.startsWith("'")) el = "'" + el + "'";
+                        sb2D.append(el);
+                    }
+                    sb2D.append("}");
+                }
+                sb2D.append("};");
+                return sb2D.toString();
+            } else if (isString2D) {
+                // Build String[][]
+                StringBuilder sb2D = new StringBuilder("String[][] " + varName + " = {");
+                for (int i = 0; i < sublists2D.size(); i++) {
+                    if (i > 0) sb2D.append(", ");
+                    String subInner = sublists2D.get(i).trim();
+                    if (subInner.startsWith("[")) subInner = subInner.substring(1, subInner.length() - 1);
+                    String[] elems = splitCsvRespectingQuotes(subInner);
+                    sb2D.append("{");
+                    for (int j = 0; j < elems.length; j++) {
+                        if (j > 0) sb2D.append(", ");
+                        String el = elems[j].trim();
+                        if (!el.startsWith("\"")) el = "\"" + el + "\"";
+                        sb2D.append(el);
+                    }
+                    sb2D.append("}");
+                }
+                sb2D.append("};");
+                return sb2D.toString();
+            } else {
+                // int[][]
+                String inner = token.substring(1, token.length() - 1);
+                inner = inner.replaceAll("\\[", "{").replaceAll("\\]", "}");
+                return "int[][] " + varName + " = {" + inner + "};";
+            }
         }
 
         // 1D Array: "[1,2,3]" or "nums = [1,2,3]"
@@ -767,6 +841,31 @@ public class CodeExecutionService {
 
         // Fallback: treat as String literal
         return "String " + varName + " = \"" + token + "\";";
+    }
+
+    /**
+     * Returns true if each element in the CSV is a QUOTED single character.
+     * e.g. "B","W","B" → true; B,W,B → false; 1,2,3 → false; "hello" → false
+     *
+     * We require quotes because unquoted single chars like "1","2" are ambiguous
+     * with int arrays [[1,2],[3,4]] — LeetCode always quotes char values.
+     */
+    private boolean looksLikeCharArray(String csv) {
+        if (csv == null || csv.trim().isEmpty()) return false;
+        // Must contain at least one quote to be a char array
+        if (!csv.contains("\"") && !csv.contains("'")) return false;
+        String[] elements = splitCsvRespectingQuotes(csv);
+        for (String el : elements) {
+            String t = el.trim();
+            // Must be quoted
+            boolean isDoubleQuoted = t.startsWith("\"") && t.endsWith("\"");
+            boolean isSingleQuoted = t.startsWith("'") && t.endsWith("'");
+            if (!isDoubleQuoted && !isSingleQuoted) return false;
+            // After stripping quotes, must be exactly 1 character
+            String inner = t.substring(1, t.length() - 1);
+            if (inner.length() != 1) return false;
+        }
+        return true;
     }
 
     /**
