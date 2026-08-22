@@ -48,6 +48,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
+        // Client disconnected before the response was fully written — not a server error, ignore it
+        if (ex instanceof org.springframework.web.context.request.async.AsyncRequestNotUsableException
+                || (ex.getCause() instanceof java.io.IOException
+                        && ex.getMessage() != null
+                        && ex.getMessage().contains("aborted"))) {
+            log.debug("Client disconnected mid-response (ignored): {}", ex.getMessage());
+            return null;
+        }
         log.error("Unexpected error: {}", ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "error", "Internal Server Error",

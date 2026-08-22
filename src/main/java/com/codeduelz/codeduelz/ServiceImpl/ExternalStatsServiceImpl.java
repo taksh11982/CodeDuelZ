@@ -13,7 +13,7 @@ public class ExternalStatsServiceImpl implements ExternalStatsService {
     private final RestTemplate rest = new RestTemplate();
 
     @Override
-    @Cacheable(value = "externalStats", key = "T(String).valueOf(#lc) + ':' + T(String).valueOf(#cf) + ':' + T(String).valueOf(#cc)")
+    @Cacheable(value = "externalStats", key = "(#lc ?: 'null') + ':' + (#cf ?: 'null') + ':' + (#cc ?: 'null')")
     public ExternalStatsDto getUserStats(String lc, String cf, String cc) {
         ExternalStatsDto stats = new ExternalStatsDto();
         if (lc != null && !lc.isBlank())

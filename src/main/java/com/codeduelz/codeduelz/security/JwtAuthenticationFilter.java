@@ -1,9 +1,11 @@
 package com.codeduelz.codeduelz.security;
 
+
+
 import com.codeduelz.codeduelz.entities.User;
-import com.codeduelz.codeduelz.services.FirebaseAuthService;
+import com.codeduelz.codeduelz.services.JwtService;
 import com.codeduelz.codeduelz.services.UserService;
-import com.google.firebase.auth.FirebaseToken;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,46 +18,39 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 @Component
-public class FirebaseAuthenticationFilter
-        extends OncePerRequestFilter {
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private final FirebaseAuthService firebaseAuthService;
+    private final JwtService jwtService;
     private final UserService userService;
 
-    public FirebaseAuthenticationFilter(
-            FirebaseAuthService firebaseAuthService,
-            UserService userService) {
-        this.firebaseAuthService = firebaseAuthService;
+    public JwtAuthenticationFilter(JwtService jwtService, UserService userService) {
+        this.jwtService = jwtService;
         this.userService = userService;
     }
 
     @Override
-    protected void doFilterInternal(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            FilterChain filterChain)
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-
         String header = request.getHeader("Authorization");
 
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 String token = header.substring(7);
-                FirebaseToken decoded = firebaseAuthService.verifyToken(token);
+                Claims claims = jwtService.parseToken(token);
+                
+                String uuid = claims.getSubject();
+                String email = (String) claims.get("email");
 
-                User user = userService.findOrCreateFirebaseUser(decoded);
+                // Update your UserService to findOrCreate based on UUID and Email instead of FirebaseToken
+                User user = userService.findOrCreateJwtUser(uuid, email);
 
                 UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(
-                                user, null, user.getAuthorities());
-
+                        new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                 SecurityContextHolder.getContext().setAuthentication(auth);
             } catch (Exception e) {
-                logger.error("Firebase auth failed: " + e.getMessage(), e);
+                logger.error("JWT auth failed: " + e.getMessage(), e);
             }
         }
-
         filterChain.doFilter(request, response);
     }
 }
-
